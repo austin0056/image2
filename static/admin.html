@@ -67,7 +67,7 @@
       <table>
         <thead><tr>
           <th>ID</th><th>时间</th><th>用户</th><th>Prompt</th>
-          <th>尺寸</th><th>参考</th><th>状态</th><th>费用</th><th>结果</th>
+          <th>尺寸</th><th>参考</th><th>状态</th><th>费用</th><th>结果</th><th>操作</th>
         </tr></thead>
         <tbody id="gen-tbody"></tbody>
       </table>
@@ -249,7 +249,15 @@ async function refreshGenerations() {
       <td>${g.has_ref ? (g.ref_url ? `<a href="${g.ref_url}" target="_blank">看</a>` : "有") : ""}</td>
       <td>${statusTag}</td>
       <td>${fmtMoney(g.cost_cents)}</td>
-      <td>${g.result_url ? `<a href="${g.result_url}" target="_blank">查看</a>` : ""}</td>`;
+      <td>${g.result_url ? `<a href="${g.result_url}" target="_blank">查看</a>` : ""}</td>
+      <td><button class="btn small danger del-gen">删除</button></td>`;
+    tr.querySelector(".del-gen").onclick = async () => {
+      if (!confirm(`删除记录 #${g.id}？图片也会一起删。`)) return;
+      try {
+        await api(`/api/admin/generations/${g.id}`, { method: "DELETE" });
+        refreshGenerations(); refreshStats();
+      } catch (e) { toast(e.message, "error"); }
+    };
     tbody.appendChild(tr);
   }
 }

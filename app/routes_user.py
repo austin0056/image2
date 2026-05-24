@@ -179,3 +179,15 @@ async def get_file(kind: str, generation_id: int, access_key: str = Query(...)):
         raise HTTPException(404)
     body, ctype = await storage.fetch_object(key)
     return StreamingResponse(io.BytesIO(body), media_type=ctype)
+
+
+@router.delete("/api/generations/{generation_id}")
+async def api_delete_generation(generation_id: int, access_key: str = Query(...)) -> dict[str, Any]:
+    user = await require_user(access_key)
+    deleted = await db.delete_generation(generation_id, user_id=user["id"])
+    if not deleted:
+        raise HTTPException(404, "记录不存在或不属于你")
+    keys = [k for k in (deleted.get("ref_key"), deleted.get("result_key")) if k]
+    if keys:
+        await storage.delete_keys(keys)
+    return {"ok": True}

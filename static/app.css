@@ -95,6 +95,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #6aa6ff
   background: #1c2030; border: 1px solid #232733;
   border-radius: 8px; overflow: hidden;
   cursor: pointer;
+  position: relative;
 }
 .history-item img {
   width: 100%; height: 140px; object-fit: cover; display: block;
@@ -105,6 +106,15 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #6aa6ff
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .history-item.failed .meta { color: #d75a5a; }
+.history-item .del-btn {
+  position: absolute; top: 6px; right: 6px;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(20, 22, 30, 0.8); color: #fff;
+  border: none; cursor: pointer; font-size: 14px;
+  display: none; align-items: center; justify-content: center;
+}
+.history-item:hover .del-btn { display: flex; }
+.history-item .del-btn:hover { background: #d75a5a; }
 
 table {
   width: 100%; border-collapse: collapse; font-size: 13px;

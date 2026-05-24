@@ -68,3 +68,21 @@ async def fetch_object(key: str) -> tuple[bytes, str]:
         return body, obj.get("ContentType") or "image/png"
 
     return await asyncio.to_thread(_do)
+
+
+async def delete_keys(keys: list[str]) -> None:
+    """批量删除。忽略不存在的 key。"""
+    keys = [k for k in keys if k]
+    if not keys:
+        return
+
+    def _do() -> None:
+        cli = _client()
+        # 单个删除足够用，并发量不大
+        for k in keys:
+            try:
+                cli.delete_object(Bucket=settings.s3_bucket, Key=k)
+            except Exception:
+                pass
+
+    await asyncio.to_thread(_do)

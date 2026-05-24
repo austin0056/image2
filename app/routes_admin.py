@@ -150,3 +150,14 @@ async def admin_get_file(kind: str, generation_id: int):
         raise HTTPException(404)
     body, ctype = await storage.fetch_object(key)
     return StreamingResponse(io.BytesIO(body), media_type=ctype)
+
+
+@router.delete("/api/admin/generations/{generation_id}", dependencies=[Depends(require_admin)])
+async def admin_delete_generation(generation_id: int) -> dict[str, Any]:
+    deleted = await db.delete_generation(generation_id)
+    if not deleted:
+        raise HTTPException(404, "记录不存在")
+    keys = [k for k in (deleted.get("ref_key"), deleted.get("result_key")) if k]
+    if keys:
+        await storage.delete_keys(keys)
+    return {"ok": True}

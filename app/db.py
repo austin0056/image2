@@ -213,6 +213,19 @@ async def get_generation(generation_id: int) -> dict[str, Any] | None:
     return _row_to_dict(row)
 
 
+async def delete_generation(generation_id: int, user_id: int | None = None) -> dict[str, Any] | None:
+    """删除一条记录。user_id 不为 None 时必须属于该用户。返回被删记录。"""
+    async with pool().acquire() as con:
+        if user_id is None:
+            row = await con.fetchrow("DELETE FROM generations WHERE id=$1 RETURNING ref_key, result_key", generation_id)
+        else:
+            row = await con.fetchrow(
+                "DELETE FROM generations WHERE id=$1 AND user_id=$2 RETURNING ref_key, result_key",
+                generation_id, user_id,
+            )
+    return _row_to_dict(row)
+
+
 async def admin_stats() -> dict[str, Any]:
     async with pool().acquire() as con:
         users_total = await con.fetchval("SELECT COUNT(*) FROM users")

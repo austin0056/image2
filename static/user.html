@@ -191,8 +191,24 @@ async function refreshHistory() {
       meta.className = "meta";
       meta.title = it.prompt + (it.error ? " · " + it.error : "");
       meta.textContent = (it.status === "failed" ? "✗ " : "") + it.prompt;
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "del-btn";
+      delBtn.title = "删除";
+      delBtn.textContent = "×";
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm("删除这条记录？图片会一起删。")) return;
+        try {
+          await api(`/api/generations/${it.id}?access_key=` + encodeURIComponent(accessKey),
+                    { method: "DELETE" });
+          refreshHistory();
+        } catch (err) { toast("删除失败：" + err.message, "error"); }
+      };
+
       div.appendChild(img);
       div.appendChild(meta);
+      div.appendChild(delBtn);
       box.appendChild(div);
     }
   } catch (e) {}
