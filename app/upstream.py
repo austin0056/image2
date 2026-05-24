@@ -58,12 +58,13 @@ def _err_text(resp: httpx.Response) -> str:
         return resp.text[:500]
 
 
-async def generate_image(prompt: str, size: str) -> bytes:
+async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes:
     url = f"{settings.upstream_base}/images/generations"
     body = {
         "model": settings.upstream_model,
         "prompt": prompt,
         "size": size,
+        "quality": quality,
         "n": 1,
         "response_format": "b64_json",
     }
@@ -79,13 +80,14 @@ async def generate_image(prompt: str, size: str) -> bytes:
         return await _decode_response(client, resp.json())
 
 
-async def edit_image(prompt: str, size: str, ref_png: bytes) -> bytes:
+async def edit_image(prompt: str, size: str, ref_png: bytes, quality: str = "auto") -> bytes:
     url = f"{settings.upstream_base}/images/edits"
     files = {"image": ("ref.png", ref_png, "image/png")}
     data = {
         "model": settings.upstream_model,
         "prompt": prompt,
         "size": size,
+        "quality": quality,
         "n": "1",
         "response_format": "b64_json",
     }

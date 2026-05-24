@@ -15,8 +15,33 @@ from .deps import require_user
 
 router = APIRouter()
 
-ALLOWED_SIZES = {"auto", "1024x1024", "1024x1536", "1536x1024"}
+ALLOWED_QUALITY = {"auto", "low", "medium", "high"}
 MAX_REF_BYTES = 10 * 1024 * 1024  # 10MB
+
+# gpt-image-2 尺寸规则：长宽均为 16 的倍数；最短边 ≥ 256；最长边 ≤ 4096。
+SIZE_MIN = 256
+SIZE_MAX = 4096
+SIZE_MULTIPLE = 16
+
+
+def _validate_size(size: str) -> str:
+    s = size.strip().lower()
+    if s == "auto":
+        return "auto"
+    if "x" not in s:
+        raise HTTPException(400, "size 格式必须为 WIDTHxHEIGHT，比如 1024x1024")
+    try:
+        w_str, h_str = s.split("x", 1)
+        w, h = int(w_str), int(h_str)
+    except ValueError:
+        raise HTTPException(400, "size 解析失败")
+    if w < SIZE_MIN or h < SIZE_MIN:
+        raise HTTPException(400, f"尺寸过小，宽高都需 ≥ {SIZE_MIN}")
+    if w > SIZE_MAX or h > SIZE_MAX:
+        raise HTTPException(400, f"尺寸过大，宽高都需 ≤ {SIZE_MAX}")
+    if w % SIZE_MULTIPLE or h % SIZE_MULTIPLE:
+        raise HTTPException(400, f"尺寸必须是 {SIZE_MULTIPLE} 的倍数")
+    return f"{w}x{h}"
 
 
 class KeyBody(BaseModel):
@@ -53,14 +78,16 @@ async def api_generate(
     access_key: str = Form(...),
     prompt: str = Form(...),
     size: str = Form("1024x1024"),
+    quality: str = Form("high"),
     ref: UploadFile | None = File(default=None),
 ) -> dict[str, Any]:
     user = await require_user(access_key)
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(400, "prompt 不能为空")
-    if size not in ALLOWED_SIZES:
-        raise HTTPException(400, f"size 必须是 {sorted(ALLOWED_SIZES)} 之一")
+    size = _validate_size(size)
+    if quality not in ALLOWED_QUALITY:
+        raise HTTPException(400, f"quality 必须是 {sorted(ALLOWED_QUALITY)} 之一")
 
     ref_bytes: bytes | None = None
     ref_key: str | None = None
@@ -93,9 +120,9 @@ async def api_generate(
 
     try:
         if has_ref and ref_bytes is not None:
-            png = await upstream.edit_image(prompt, size, ref_bytes)
+            png = await upstream.edit_image(prompt, size, ref_bytes, quality=quality)
         else:
-            png = await upstream.generate_image(prompt, size)
+            png = await upstream.generate_image(prompt, size, quality=quality)
         result_key = storage.make_key("results")
         await storage.upload_bytes(result_key, png)
         await db.mark_success(gen_id, result_key)
