@@ -21,6 +21,43 @@ def _env(key: str, default: str | None = None, *, required: bool = False) -> str
     return val or ""
 
 
+def _resolve_database_url() -> str:
+    """DATABASE_URL 优先；否则尝试从 PG/POSTGRES 系列组件变量拼出来。"""
+    url = os.getenv("DATABASE_URL", "").strip()
+    if url:
+        # 兼容某些平台给的 postgresql:// 与 postgres:// 双写法
+        if url.startswith("postgres://"):
+            return url
+        if url.startswith("postgresql://"):
+            return url
+        # 不带 scheme 的话也尝试加上
+        if "://" not in url and "@" in url:
+            return "postgres://" + url
+        # 其它格式直接返回，让 asyncpg 报错给出更细信息
+        return url
+
+    # Zeabur 也常见 POSTGRES_CONNECTION_STRING / PG_URL 这类别名
+    for alias in ("POSTGRES_CONNECTION_STRING", "POSTGRES_URL", "PG_URL"):
+        v = os.getenv(alias, "").strip()
+        if v:
+            return v
+
+    # 最后兜底：从组件拼
+    host = os.getenv("POSTGRES_HOST") or os.getenv("PGHOST")
+    port = os.getenv("POSTGRES_PORT") or os.getenv("PGPORT") or "5432"
+    user = os.getenv("POSTGRES_USER") or os.getenv("PGUSER")
+    pwd = os.getenv("POSTGRES_PASSWORD") or os.getenv("PGPASSWORD")
+    db = os.getenv("POSTGRES_DATABASE") or os.getenv("POSTGRES_DB") or os.getenv("PGDATABASE")
+    if host and user and pwd and db:
+        from urllib.parse import quote
+        return f"postgres://{quote(user)}:{quote(pwd)}@{host}:{port}/{db}"
+
+    raise RuntimeError(
+        "DATABASE_URL 未设置或为空。请在 Zeabur Variables 里把 PostgreSQL 服务的连接串填到 DATABASE_URL，"
+        "或提供 POSTGRES_HOST/PORT/USER/PASSWORD/DATABASE 这些组件变量。"
+    )
+
+
 @dataclass(frozen=True)
 class Settings:
     # 上游
@@ -56,7 +93,7 @@ def load_settings() -> Settings:
         price_cents=int(_env("PRICE_CENTS", "5")),
         admin_password=_env("ADMIN_PASSWORD", required=True),
         session_secret=session_secret,
-        database_url=_env("DATABASE_URL", required=True),
+        database_url=_resolve_database_url(),
         s3_endpoint=_env("S3_ENDPOINT", required=True),
         s3_access_key=_env("S3_ACCESS_KEY", required=True),
         s3_secret_key=_env("S3_SECRET_KEY", required=True),
