@@ -15,7 +15,7 @@ from .deps import require_user
 
 router = APIRouter()
 
-ALLOWED_SIZES = {"1024x1024", "1024x1536", "1536x1024"}
+ALLOWED_SIZES = {"auto", "1024x1024", "1024x1536", "1536x1024"}
 MAX_REF_BYTES = 10 * 1024 * 1024  # 10MB
 
 
