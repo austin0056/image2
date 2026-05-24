@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>image2 — 管理面板</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+
+<div id="login" class="container" style="max-width:420px;margin-top:80px;">
+  <div class="card">
+    <h2>管理员登录</h2>
+    <label>密码</label>
+    <input id="pw" type="password" autocomplete="current-password" />
+    <button class="btn" id="login-btn" style="margin-top:16px;">登录</button>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="brand">image2 · 管理</div>
+    <div class="meta">
+      <a href="/" target="_blank">用户面板</a>
+      <a href="#" id="logout">退出</a>
+    </div>
+  </div>
+
+  <div class="container wide">
+    <div class="stat-grid">
+      <div class="stat-card"><div class="label">总用户数</div><div class="value" id="s-users">0</div></div>
+      <div class="stat-card"><div class="label">今日调用</div><div class="value" id="s-today">0</div></div>
+      <div class="stat-card"><div class="label">累计扣款</div><div class="value" id="s-cost">¥0.00</div></div>
+      <div class="stat-card"><div class="label">失败次数</div><div class="value" id="s-failed">0</div></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">用户</h2>
+        <div style="display:flex;gap:8px;">
+          <input id="new-name" type="text" placeholder="新用户名" style="width:200px;" />
+          <button class="btn small" id="add-user">新建用户</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>名字</th><th>Access Key</th><th>余额</th><th>调用</th><th>创建</th><th>操作</th>
+        </tr></thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">调用记录</h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="filter-status" style="width:auto;">
+            <option value="">全部状态</option>
+            <option value="success">成功</option>
+            <option value="failed">失败</option>
+            <option value="pending">进行中</option>
+          </select>
+          <select id="filter-user" style="width:auto;"><option value="">全部用户</option></select>
+          <button class="btn small secondary" id="refresh-gen">刷新</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>时间</th><th>用户</th><th>Prompt</th>
+          <th>尺寸</th><th>参考</th><th>状态</th><th>费用</th><th>结果</th>
+        </tr></thead>
+        <tbody id="gen-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+function $(id) { return document.getElementById(id); }
+function toast(msg, type = "") {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = "toast " + type;
+  setTimeout(() => el.classList.add("hidden"), 3500);
+}
+function fmtMoney(cents) { return "¥" + (cents / 100).toFixed(2); }
+function fmtTime(iso) { if (!iso) return ""; return new Date(iso).toLocaleString("zh-CN", { hour12: false }); }
+
+async function api(path, opts = {}) {
+  opts.credentials = "include";
+  if (opts.body && !(opts.body instanceof FormData) && !opts.headers) {
+    opts.headers = { "Content-Type": "application/json" };
+  }
+  const res = await fetch(path, opts);
+  if (res.status === 401) { showLogin(); throw new Error("未登录"); }
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = j.detail || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function showLogin() {
+  $("login").classList.remove("hidden");
+  $("app").classList.add("hidden");
+}
+function showApp() {
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  refreshAll();
+}
+
+async function login() {
+  const pw = $("pw").value;
+  if (!pw) { toast("请输入密码", "error"); return; }
+  try {
+    await api("/api/admin/login", { method: "POST", body: JSON.stringify({ password: pw }) });
+    $("pw").value = "";
+    showApp();
+  } catch (e) { toast("登录失败：" + e.message, "error"); }
+}
+
+async function logout() {
+  await api("/api/admin/logout", { method: "POST" });
+  showLogin();
+}
+
+async function refreshAll() {
+  await Promise.all([refreshStats(), refreshUsers(), refreshGenerations()]);
+}
+
+async function refreshStats() {
+  const s = await api("/api/admin/stats");
+  $("s-users").textContent = s.users_total;
+  $("s-today").textContent = s.today_calls;
+  $("s-cost").textContent = fmtMoney(s.total_cost_cents);
+  $("s-failed").textContent = s.failed_calls;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+async function refreshUsers() {
+  const data = await api("/api/admin/users");
+  const tbody = $("users-tbody");
+  tbody.innerHTML = "";
+  const sel = $("filter-user");
+  sel.innerHTML = '<option value="">全部用户</option>';
+  for (const u of data.items) {
+    sel.appendChild(new Option(u.name + " (#" + u.id + ")", u.id));
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${u.id}</td>
+      <td><span class="name-cell">${escapeHtml(u.name)}</span></td>
+      <td><div class="key-cell">
+        <span class="mono key-text" data-key="${escapeHtml(u.access_key)}">••••••••</span>
+        <button class="btn small secondary toggle-key">显示</button>
+        <button class="btn small secondary copy-key">复制</button>
+      </div></td>
+      <td>${fmtMoney(u.balance_cents)}</td>
+      <td>${u.gen_count}</td>
+      <td class="muted">${fmtTime(u.created_at)}</td>
+      <td>
+        <button class="btn small topup">充值</button>
+        <button class="btn small secondary rename">改名</button>
+        <button class="btn small danger del">删除</button>
+      </td>`;
+    const keyText = tr.querySelector(".key-text");
+    tr.querySelector(".toggle-key").onclick = () => {
+      if (keyText.textContent.startsWith("•")) {
+        keyText.textContent = keyText.dataset.key;
+      } else {
+        keyText.textContent = "••••••••";
+      }
+    };
+    tr.querySelector(".copy-key").onclick = async () => {
+      await navigator.clipboard.writeText(keyText.dataset.key);
+      toast("已复制", "success");
+    };
+    tr.querySelector(".topup").onclick = async () => {
+      const v = prompt("充值金额（元）", "10");
+      if (!v) return;
+      const yuan = parseFloat(v);
+      if (!isFinite(yuan) || yuan <= 0) { toast("金额无效", "error"); return; }
+      try {
+        await api(`/api/admin/users/${u.id}/topup`, { method: "POST", body: JSON.stringify({ yuan }) });
+        toast("充值成功", "success");
+        refreshUsers();
+      } catch (e) { toast(e.message, "error"); }
+    };
+    tr.querySelector(".rename").onclick = async () => {
+      const v = prompt("新名字", u.name);
+      if (!v || v === u.name) return;
+      try {
+        await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ name: v }) });
+        refreshUsers();
+      } catch (e) { toast(e.message, "error"); }
+    };
+    tr.querySelector(".del").onclick = async () => {
+      if (!confirm(`删除用户 ${u.name}？历史记录会保留但用户身份会清空。`)) return;
+      try {
+        await api(`/api/admin/users/${u.id}`, { method: "DELETE" });
+        refreshUsers();
+        refreshGenerations();
+      } catch (e) { toast(e.message, "error"); }
+    };
+    tbody.appendChild(tr);
+  }
+}
+
+async function addUser() {
+  const name = $("new-name").value.trim();
+  if (!name) { toast("请输入名字", "error"); return; }
+  try {
+    const u = await api("/api/admin/users", { method: "POST", body: JSON.stringify({ name }) });
+    $("new-name").value = "";
+    toast("已创建。Key: " + u.access_key, "success");
+    refreshUsers();
+    refreshStats();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function refreshGenerations() {
+  const userId = $("filter-user").value;
+  const status = $("filter-status").value;
+  const qs = new URLSearchParams();
+  if (userId) qs.set("user_id", userId);
+  if (status) qs.set("status", status);
+  const data = await api("/api/admin/generations" + (qs.toString() ? "?" + qs : ""));
+  const tbody = $("gen-tbody");
+  tbody.innerHTML = "";
+  for (const g of data.items) {
+    const tr = document.createElement("tr");
+    const statusTag = g.status === "success"
+      ? '<span class="tag success">成功</span>'
+      : g.status === "failed"
+      ? `<span class="tag failed" title="${escapeHtml(g.error || "")}">失败</span>`
+      : `<span class="tag">${escapeHtml(g.status)}</span>`;
+    tr.innerHTML = `
+      <td>${g.id}</td>
+      <td class="muted">${fmtTime(g.created_at)}</td>
+      <td>${escapeHtml(g.user_name || "(已删)")}</td>
+      <td title="${escapeHtml(g.prompt)}" style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(g.prompt)}</td>
+      <td class="mono">${escapeHtml(g.size)}</td>
+      <td>${g.has_ref ? (g.ref_url ? `<a href="${g.ref_url}" target="_blank">看</a>` : "有") : ""}</td>
+      <td>${statusTag}</td>
+      <td>${fmtMoney(g.cost_cents)}</td>
+      <td>${g.result_url ? `<a href="${g.result_url}" target="_blank">查看</a>` : ""}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+$("login-btn").onclick = login;
+$("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+$("logout").onclick = (e) => { e.preventDefault(); logout(); };
+$("add-user").onclick = addUser;
+$("new-name").addEventListener("keydown", (e) => { if (e.key === "Enter") addUser(); });
+$("refresh-gen").onclick = refreshGenerations;
+$("filter-status").onchange = refreshGenerations;
+$("filter-user").onchange = refreshGenerations;
+
+// 自动检查登录态
+api("/api/admin/me").then(showApp).catch(() => showLogin());
+</script>
+</body>
+</html>

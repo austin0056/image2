@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>image2 — 生图</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+
+<div id="login" class="container" style="max-width:420px;margin-top:80px;">
+  <div class="card">
+    <h2>登录</h2>
+    <label>Access Key</label>
+    <input id="key-input" type="password" placeholder="ak_..." autocomplete="off" />
+    <p class="muted" style="font-size:12px;margin:8px 0 16px;">联系管理员获取 access key。</p>
+    <button class="btn" id="login-btn">进入</button>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="brand">image2</div>
+    <div class="meta">
+      <span>余额 <b id="balance">¥0.00</b></span>
+      <span class="muted">单次 ¥<span id="price">0.05</span></span>
+      <span class="muted">|</span>
+      <span id="user-name" class="muted"></span>
+      <a href="#" id="logout">退出</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2>生成</h2>
+      <label>Prompt</label>
+      <textarea id="prompt" placeholder="描述你想要的图片..."></textarea>
+
+      <div class="row" style="margin-top:12px;">
+        <div>
+          <label>尺寸</label>
+          <select id="size">
+            <option value="1024x1024">1024 × 1024 方形</option>
+            <option value="1024x1536">1024 × 1536 竖图</option>
+            <option value="1536x1024">1536 × 1024 横图</option>
+          </select>
+        </div>
+        <div>
+          <label>参考图（可选）</label>
+          <div class="dropzone" id="drop">
+            <input type="file" id="file" accept="image/*" hidden />
+            <div id="drop-hint">点击或拖拽图片到此 · 最大 10MB</div>
+            <img id="ref-preview" class="hidden" />
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+        <button class="btn" id="generate-btn">生成（扣 ¥0.05）</button>
+        <button class="btn secondary small" id="clear-ref" type="button">清空参考图</button>
+        <span id="status" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="card hidden" id="result-card">
+      <h2>结果</h2>
+      <img id="result-img" class="result-img" />
+      <div style="margin-top:10px;">
+        <a id="download-link" class="btn small" download="image.png">下载</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>历史</h2>
+      <div id="history" class="history-grid"></div>
+      <p id="history-empty" class="muted hidden">还没有生成记录。</p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const KEY_STORE = "image2_access_key";
+let accessKey = localStorage.getItem(KEY_STORE) || "";
+let refFile = null;
+
+function $(id) { return document.getElementById(id); }
+function toast(msg, type = "") {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = "toast " + type;
+  setTimeout(() => el.classList.add("hidden"), 3500);
+}
+function fmtMoney(cents) { return "¥" + (cents / 100).toFixed(2); }
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = j.detail || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function login() {
+  const key = $("key-input").value.trim();
+  if (!key) { toast("请填写 access key", "error"); return; }
+  try {
+    const me = await api("/api/me", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_key: key }),
+    });
+    accessKey = key;
+    localStorage.setItem(KEY_STORE, key);
+    showApp(me);
+  } catch (e) { toast("登录失败：" + e.message, "error"); }
+}
+
+function logout() {
+  localStorage.removeItem(KEY_STORE);
+  accessKey = "";
+  $("app").classList.add("hidden");
+  $("login").classList.remove("hidden");
+}
+
+async function showApp(me) {
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  $("user-name").textContent = me.name;
+  $("balance").textContent = fmtMoney(me.balance_cents);
+  $("price").textContent = (me.price_cents / 100).toFixed(2);
+  await refreshHistory();
+}
+
+async function refreshMe() {
+  try {
+    const me = await api("/api/me", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_key: accessKey }),
+    });
+    $("balance").textContent = fmtMoney(me.balance_cents);
+  } catch (e) {}
+}
+
+async function refreshHistory() {
+  try {
+    const data = await api("/api/history?access_key=" + encodeURIComponent(accessKey));
+    const box = $("history");
+    box.innerHTML = "";
+    $("history-empty").classList.toggle("hidden", data.items.length > 0);
+    for (const it of data.items) {
+      const div = document.createElement("div");
+      div.className = "history-item" + (it.status === "failed" ? " failed" : "");
+      const img = document.createElement("img");
+      if (it.result_url) {
+        img.src = it.result_url + "?access_key=" + encodeURIComponent(accessKey);
+        div.onclick = () => window.open(img.src, "_blank");
+      } else {
+        img.alt = "(失败)";
+      }
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.title = it.prompt + (it.error ? " · " + it.error : "");
+      meta.textContent = (it.status === "failed" ? "✗ " : "") + it.prompt;
+      div.appendChild(img);
+      div.appendChild(meta);
+      box.appendChild(div);
+    }
+  } catch (e) {}
+}
+
+function setRefFile(f) {
+  refFile = f;
+  const prev = $("ref-preview");
+  if (f) {
+    prev.src = URL.createObjectURL(f);
+    prev.classList.remove("hidden");
+    $("drop-hint").classList.add("hidden");
+  } else {
+    prev.classList.add("hidden");
+    prev.removeAttribute("src");
+    $("drop-hint").classList.remove("hidden");
+  }
+}
+
+async function generate() {
+  const prompt = $("prompt").value.trim();
+  if (!prompt) { toast("Prompt 不能为空", "error"); return; }
+  const fd = new FormData();
+  fd.append("access_key", accessKey);
+  fd.append("prompt", prompt);
+  fd.append("size", $("size").value);
+  if (refFile) fd.append("ref", refFile);
+
+  const btn = $("generate-btn");
+  btn.disabled = true;
+  $("status").innerHTML = '<span class="spinner"></span> 生成中（图片可能需要 30-90 秒）...';
+  try {
+    const data = await api("/api/generate", { method: "POST", body: fd });
+    $("balance").textContent = fmtMoney(data.balance_cents);
+    const url = data.result_url + "?access_key=" + encodeURIComponent(accessKey);
+    $("result-img").src = url;
+    $("download-link").href = url;
+    $("result-card").classList.remove("hidden");
+    $("status").textContent = "完成";
+    toast("生成成功", "success");
+    refreshHistory();
+  } catch (e) {
+    $("status").textContent = "";
+    toast("生成失败：" + e.message, "error");
+    refreshMe();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// 初始化
+$("login-btn").onclick = login;
+$("key-input").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+$("logout").onclick = (e) => { e.preventDefault(); logout(); };
+$("generate-btn").onclick = generate;
+
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+$("file").onchange = (e) => { if (e.target.files[0]) setRefFile(e.target.files[0]); };
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("dragover"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("dragover"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  drop.classList.remove("dragover");
+  if (e.dataTransfer.files[0]) setRefFile(e.dataTransfer.files[0]);
+});
+$("clear-ref").onclick = () => { setRefFile(null); $("file").value = ""; };
+
+// 自动登录
+if (accessKey) {
+  $("key-input").value = accessKey;
+  api("/api/me", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ access_key: accessKey }),
+  }).then(showApp).catch(() => logout());
+}
+</script>
+</body>
+</html>
