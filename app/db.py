@@ -67,6 +67,13 @@ async def _init_schema() -> None:
                 ON generations(user_id, created_at DESC);
             """
         )
+        # 渐进式加列（幂等）
+        await con.execute(
+            "ALTER TABLE generations ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'image'"
+        )
+        await con.execute(
+            "ALTER TABLE generations ADD COLUMN IF NOT EXISTS result_svg TEXT"
+        )
 
 
 # ----- 用户 -----
@@ -141,6 +148,7 @@ async def try_charge_and_create(
     has_ref: bool,
     ref_key: str | None,
     cost_cents: int,
+    kind: str = "image",
 ) -> tuple[int | None, int | None]:
     """原子扣费 + 插入 pending 记录。返回 (generation_id, balance_after)。
     余额不足返回 (None, None)。"""
@@ -160,11 +168,11 @@ async def try_charge_and_create(
             balance = int(row["balance_cents"])
             gen = await con.fetchrow(
                 """
-                INSERT INTO generations(user_id, prompt, size, has_ref, ref_key, cost_cents, status)
-                VALUES($1, $2, $3, $4, $5, $6, 'pending')
+                INSERT INTO generations(user_id, prompt, size, has_ref, ref_key, cost_cents, status, kind)
+                VALUES($1, $2, $3, $4, $5, $6, 'pending', $7)
                 RETURNING id
                 """,
-                user_id, prompt, size, has_ref, ref_key, cost_cents,
+                user_id, prompt, size, has_ref, ref_key, cost_cents, kind,
             )
             return int(gen["id"]), balance
 
@@ -174,6 +182,14 @@ async def mark_success(generation_id: int, result_key: str) -> None:
         await con.execute(
             "UPDATE generations SET status='success', result_key=$1 WHERE id=$2",
             result_key, generation_id,
+        )
+
+
+async def mark_success_svg(generation_id: int, svg_text: str) -> None:
+    async with pool().acquire() as con:
+        await con.execute(
+            "UPDATE generations SET status='success', result_svg=$1 WHERE id=$2",
+            svg_text, generation_id,
         )
 
 
@@ -196,7 +212,8 @@ async def list_history(user_id: int, limit: int = 30) -> list[dict[str, Any]]:
     async with pool().acquire() as con:
         rows = await con.fetch(
             """
-            SELECT id, prompt, size, has_ref, ref_key, result_key, cost_cents, status, error, created_at
+            SELECT id, prompt, size, has_ref, ref_key, result_key, result_svg,
+                   kind, cost_cents, status, error, created_at
             FROM generations
             WHERE user_id=$1
             ORDER BY id DESC
@@ -251,7 +268,7 @@ async def admin_list_generations(
 ) -> list[dict[str, Any]]:
     sql = (
         "SELECT g.id, g.user_id, u.name AS user_name, g.prompt, g.size, g.has_ref, "
-        "g.ref_key, g.result_key, g.cost_cents, g.status, g.error, g.created_at "
+        "g.ref_key, g.result_key, g.result_svg, g.kind, g.cost_cents, g.status, g.error, g.created_at "
         "FROM generations g LEFT JOIN users u ON u.id = g.user_id WHERE 1=1"
     )
     args: list[Any] = []

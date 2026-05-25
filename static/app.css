@@ -165,6 +165,16 @@ tr:hover td { background: #1a1e2b; }
 
 .hidden { display: none !important; }
 
+.tab-btn {
+  background: transparent; border: none;
+  color: #97a0b8; cursor: pointer;
+  padding: 8px 14px; font-size: 14px; font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: #e6e8ee; }
+.tab-btn.active { color: #fff; border-bottom-color: #6aa6ff; }
+
 @media (max-width: 720px) {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
 }

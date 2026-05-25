@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
-from . import db, storage, upstream
+from . import db, storage, upstream, upstream_claude
 from .config import settings
 from .deps import require_user
 
@@ -149,20 +149,25 @@ async def api_history(access_key: str = Query(...)) -> dict[str, Any]:
     rows = await db.list_history(user["id"], limit=30)
     out = []
     for r in rows:
-        out.append(
-            {
-                "id": r["id"],
-                "prompt": r["prompt"],
-                "size": r["size"],
-                "has_ref": r["has_ref"],
-                "status": r["status"],
-                "error": r["error"],
-                "cost_cents": r["cost_cents"],
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                "result_url": f"/files/result/{r['id']}" if r["result_key"] else None,
-                "ref_url": f"/files/ref/{r['id']}" if r["ref_key"] else None,
-            }
-        )
+        kind = r.get("kind") or "image"
+        item = {
+            "id": r["id"],
+            "kind": kind,
+            "prompt": r["prompt"],
+            "size": r["size"],
+            "has_ref": r["has_ref"],
+            "status": r["status"],
+            "error": r["error"],
+            "cost_cents": r["cost_cents"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        if kind == "icon":
+            item["result_url"] = f"/icons/{r['id']}.svg" if r["result_svg"] else None
+            item["ref_url"] = None
+        else:
+            item["result_url"] = f"/files/result/{r['id']}" if r["result_key"] else None
+            item["ref_url"] = f"/files/ref/{r['id']}" if r["ref_key"] else None
+        out.append(item)
     return {"items": out}
 
 
@@ -191,3 +196,67 @@ async def api_delete_generation(generation_id: int, access_key: str = Query(...)
     if keys:
         await storage.delete_keys(keys)
     return {"ok": True}
+
+
+# ---------- 图标生成 ----------
+
+ALLOWED_ICON_STYLES = {"auto", "line", "flat", "duotone", "glyph", "outline", "filled"}
+
+
+@router.post("/api/generate-icon")
+async def api_generate_icon(
+    access_key: str = Form(...),
+    prompt: str = Form(...),
+    style: str = Form("auto"),
+    color: str = Form(""),
+) -> dict[str, Any]:
+    user = await require_user(access_key)
+    prompt = prompt.strip()
+    if not prompt:
+        raise HTTPException(400, "prompt 不能为空")
+    if style not in ALLOWED_ICON_STYLES:
+        raise HTTPException(400, f"style 必须是 {sorted(ALLOWED_ICON_STYLES)} 之一")
+    color = (color or "").strip()[:32]
+
+    gen_id, balance_after = await db.try_charge_and_create(
+        user_id=user["id"],
+        prompt=prompt,
+        size=style,           # 复用 size 存风格
+        has_ref=False,
+        ref_key=None,
+        cost_cents=settings.price_cents,
+        kind="icon",
+    )
+    if gen_id is None:
+        raise HTTPException(402, "余额不足")
+
+    try:
+        svg = await upstream_claude.generate_icon_svg(prompt, style=style, color=color)
+        await db.mark_success_svg(gen_id, svg)
+        return {
+            "generation_id": gen_id,
+            "result_url": f"/icons/{gen_id}.svg",
+            "balance_cents": balance_after,
+        }
+    except upstream_claude.ClaudeError as e:
+        new_balance = await db.mark_failed_and_refund(
+            gen_id, user["id"], settings.price_cents, str(e)
+        )
+        raise HTTPException(502, f"生成失败：{e}. 已退款。当前余额 {new_balance} 分")
+    except Exception as e:
+        new_balance = await db.mark_failed_and_refund(
+            gen_id, user["id"], settings.price_cents, str(e)
+        )
+        raise HTTPException(500, f"内部错误：{e}. 已退款。当前余额 {new_balance} 分")
+
+
+@router.get("/icons/{generation_id}.svg")
+async def get_icon_svg(generation_id: int, access_key: str = Query(...)):
+    user = await require_user(access_key)
+    gen = await db.get_generation(generation_id)
+    if not gen or gen["user_id"] != user["id"] or not gen.get("result_svg"):
+        raise HTTPException(404)
+    return StreamingResponse(
+        io.BytesIO(gen["result_svg"].encode("utf-8")),
+        media_type="image/svg+xml",
+    )
