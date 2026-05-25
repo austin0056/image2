@@ -3,121 +3,181 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>image2 — 生图</title>
+<title>image2 — AI 生图与矢量图标</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
 
-<div id="login" class="container" style="max-width:420px;margin-top:80px;">
-  <div class="card" style="padding:32px;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#6aa6ff 0%,#9b6aff 100%);box-shadow:0 6px 20px rgba(106,166,255,0.32);"></div>
+<!-- =============== Login =============== -->
+<div id="login" class="login-shell">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="mark"></div>
       <div>
-        <div style="font-size:18px;font-weight:700;letter-spacing:.3px;">image2</div>
-        <div class="dim" style="font-size:12px;">AI 生图 · 矢量图标</div>
+        <div class="name">image2</div>
+        <div class="tag">AI 生图 · 矢量图标</div>
       </div>
     </div>
-    <label>Access Key</label>
-    <input id="key-input" type="password" placeholder="ak_..." autocomplete="off" />
-    <p class="muted" style="font-size:12px;margin:10px 0 18px;">联系管理员获取 access key。按 Enter 登录。</p>
-    <button class="btn" id="login-btn" style="width:100%;">进入</button>
+    <h2>欢迎回来</h2>
+    <p class="lead">输入你的 Access Key 进入工作台</p>
+    <div class="field">
+      <label>Access Key</label>
+      <input id="key-input" type="password" placeholder="ak_..." autocomplete="off" />
+    </div>
+    <button class="btn primary full lg" id="login-btn" style="margin-top:8px;">进入工作台</button>
+    <p class="dim" style="font-size:11.5px;text-align:center;margin:14px 0 0;">
+      联系管理员获取 access key · 按 <span class="kbd">Enter</span> 登录
+    </p>
   </div>
 </div>
 
-<div id="app" class="hidden">
+<!-- =============== App Shell =============== -->
+<div id="app" class="app-shell hidden">
+
+  <!-- 顶栏 -->
   <div class="topbar">
-    <div class="brand">image2</div>
-    <div class="meta">
-      <span>余额 <b id="balance">¥0.00</b></span>
-      <span class="dim">· 单次 ¥<span id="price">0.05</span></span>
-      <span class="sep">|</span>
-      <span id="user-name" class="muted"></span>
-      <a href="#" id="logout">退出</a>
+    <div class="topbar-left">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <span class="brand-name">image2</span>
+        <span class="brand-tag">workspace</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="stat">余额 <b id="balance">¥0.00</b></span>
+      <span class="stat">单价 ¥<span id="price">0.05</span></span>
+      <button class="icon-btn" id="open-history" title="生成历史">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </button>
+      <span class="user-chip">
+        <span class="avatar" id="user-avatar">U</span>
+        <span id="user-name">user</span>
+        <a href="#" id="logout" style="margin-left:6px;color:#9097A4;font-size:12px;">退出</a>
+      </span>
     </div>
   </div>
 
-  <div class="container">
-    <div class="card">
-      <div class="tabs">
-        <button class="tab-btn active" data-tab="image">生图</button>
-        <button class="tab-btn" data-tab="icon">图标矢量</button>
+  <!-- Body 主区 -->
+  <div class="app-body">
+
+    <!-- =============== 左侧面板 =============== -->
+    <aside class="sidebar">
+      <!-- Tab 切换 -->
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active tab-btn" data-tab="image">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+          生图
+        </button>
+        <button class="sidebar-tab tab-btn" data-tab="icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+          图标矢量
+        </button>
       </div>
 
-      <div class="tab-pane" id="pane-image">
-      <h2 style="margin-top:0;">生成图片</h2>
-      <label>Prompt</label>
-      <textarea id="prompt" placeholder="描述你想要的图片..."></textarea>
+      <!-- =============== Pane: 生图 =============== -->
+      <div id="pane-image" class="tab-pane">
 
-      <div class="row" style="margin-top:12px;">
-        <div>
-          <label>尺寸</label>
-          <select id="size">
-            <option value="auto">Auto（让模型自选）</option>
-            <optgroup label="1K · 标准">
-              <option value="1024x1024" selected>1024 × 1024 · 1:1</option>
-              <option value="1024x1536">1024 × 1536 · 2:3 竖</option>
-              <option value="1536x1024">1536 × 1024 · 3:2 横</option>
-            </optgroup>
-            <optgroup label="2K · 高清">
-              <option value="2048x2048">2048 × 2048 · 1:1</option>
-              <option value="2048x1152">2048 × 1152 · 16:9 横</option>
-              <option value="1152x2048">1152 × 2048 · 9:16 竖</option>
-              <option value="2560x1440">2560 × 1440 · 16:9 实验</option>
-            </optgroup>
-            <optgroup label="4K · 实验性">
-              <option value="3840x2160">3840 × 2160 · 16:9 横 4K</option>
-              <option value="2160x3840">2160 × 3840 · 9:16 竖 4K</option>
-              <option value="4096x4096">4096 × 4096 · 1:1</option>
-            </optgroup>
-            <option value="__custom">自定义…</option>
-          </select>
-          <input id="size-custom" class="hidden" type="text" placeholder="例 1920x1088（需 16 的倍数）" style="margin-top:6px;" />
+        <div class="panel-section">
+          <div class="panel-title">提示词</div>
+          <textarea id="prompt" placeholder="例：A cinematic photo of a snow leopard on a mountain ridge, golden hour, 35mm lens..."></textarea>
         </div>
-        <div>
-          <label>质量</label>
-          <select id="quality">
-            <option value="high" selected>High（高质量）</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-            <option value="auto">Auto</option>
-          </select>
-        </div>
-        <div>
-          <label>参考图（可选）</label>
+
+        <div class="panel-section">
+          <div class="panel-title">参考图（可选）</div>
           <div class="dropzone" id="drop">
             <input type="file" id="file" accept="image/*" hidden />
-            <div id="drop-hint">点击或拖拽图片到此 · 最大 10MB</div>
+            <div id="drop-hint">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:.7;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <div>点击或拖拽上传 · 最大 10MB</div>
+            </div>
             <img id="ref-preview" class="hidden" />
           </div>
+          <button class="btn ghost small hidden" id="clear-ref" type="button" style="margin-top:6px;">清除参考图</button>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title">输出参数</div>
+          <div class="panel-row">
+            <label>尺寸</label>
+            <select id="size">
+              <option value="auto">Auto · 让模型自选</option>
+              <optgroup label="1K · 标准">
+                <option value="1024x1024" selected>1024 × 1024 · 1:1</option>
+                <option value="1024x1536">1024 × 1536 · 2:3 竖</option>
+                <option value="1536x1024">1536 × 1024 · 3:2 横</option>
+              </optgroup>
+              <optgroup label="2K · 高清">
+                <option value="2048x2048">2048 × 2048 · 1:1</option>
+                <option value="2048x1152">2048 × 1152 · 16:9 横</option>
+                <option value="1152x2048">1152 × 2048 · 9:16 竖</option>
+                <option value="2560x1440">2560 × 1440 · 16:9</option>
+              </optgroup>
+              <optgroup label="4K · 实验性">
+                <option value="3840x2160">3840 × 2160 · 16:9</option>
+                <option value="2160x3840">2160 × 3840 · 9:16</option>
+                <option value="4096x4096">4096 × 4096 · 1:1</option>
+              </optgroup>
+              <option value="__custom">自定义…</option>
+            </select>
+            <input id="size-custom" class="hidden" type="text" placeholder="例 1920x1088（需 16 倍数）" style="margin-top:6px;" />
+          </div>
+          <div class="panel-row">
+            <label>质量</label>
+            <select id="quality">
+              <option value="high" selected>High · 高质量</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+              <option value="auto">Auto</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="sidebar-foot">
+          <button class="gen-btn" id="generate-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2 7h7l-5.5 4 2 7L12 16l-5.5 5 2-7L3 10h7z"/></svg>
+            生成图片
+            <span class="price-pill">¥<span id="price-img-pill">0.05</span></span>
+          </button>
+          <div class="gen-status" id="status"></div>
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
-        <button class="btn" id="generate-btn">生成（扣 ¥0.05）</button>
-        <button class="btn secondary small" id="clear-ref" type="button">清空参考图</button>
-        <span id="status" class="muted"></span>
-      </div>
-      </div>
+      <!-- =============== Pane: 图标 =============== -->
+      <div id="pane-icon" class="tab-pane hidden">
 
-      <div class="tab-pane hidden" id="pane-icon">
-        <h2 style="margin-top:0;">生成矢量图标 (SVG)</h2>
-
-        <div style="display:flex;gap:8px;margin-bottom:14px;" class="engine-picker">
-          <button class="engine-btn active" data-engine="claude" type="button">
-            <div class="engine-title">快速模式</div>
-            <div class="engine-desc">Claude few-shot · ¥0.05/张</div>
-          </button>
-          <button class="engine-btn" data-engine="recraft" type="button">
-            <div class="engine-title">🎨 高级·Recraft</div>
-            <div class="engine-desc">业界顶级矢量模型 · ¥3/张</div>
-          </button>
+        <div class="panel-section">
+          <div class="panel-title">引擎</div>
+          <div class="engine-stack">
+            <button class="engine-card active engine-btn" data-engine="claude" type="button">
+              <span class="ep">¥0.05</span>
+              <div class="et">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+                快速模式
+              </div>
+              <div class="ed">Claude few-shot · 9 种图标库参考</div>
+            </button>
+            <button class="engine-card engine-btn" data-engine="recraft" type="button">
+              <span class="ep">¥3.00</span>
+              <div class="et">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 2a14.5 14.5 0 0 0 0 20"/><path d="M12 2a14.5 14.5 0 0 1 0 20"/></svg>
+                高级 <span class="badge-pro">PRO</span>
+              </div>
+              <div class="ed">Recraft v4.1 · 业界顶级矢量模型</div>
+            </button>
+          </div>
         </div>
 
-        <label>描述</label>
-        <textarea id="icon-prompt" placeholder="例：云上传、3D 立方体、锁定、环境设置…"></textarea>
+        <div class="panel-section">
+          <div class="panel-title">提示词</div>
+          <textarea id="icon-prompt" placeholder="例：云上传、3D 立方体、锁定、设置..."></textarea>
+        </div>
 
-        <div id="recraft-options" class="hidden" style="margin-top:12px;">
-          <label>Recraft 风格</label>
+        <!-- Recraft 风格 -->
+        <div class="panel-section hidden" id="recraft-options">
+          <div class="panel-title">Recraft 风格</div>
           <select id="recraft-style">
             <optgroup label="图标类">
               <option value="icon/outline" selected>线性（推荐）</option>
@@ -130,9 +190,9 @@
               <option value="icon/broken_line">虚线</option>
               <option value="icon/doodle_fill">涂鸦填充</option>
               <option value="icon/doodle_offset_fill">涂鸦偏移</option>
-              <option value="icon">图标·默认</option>
+              <option value="icon">默认</option>
             </optgroup>
-            <optgroup label="插画类·可作插图">
+            <optgroup label="插画类 · 可作大图">
               <option value="vector_illustration">矢量插画</option>
               <option value="vector_illustration/flat_2">扁平 2.0</option>
               <option value="vector_illustration/cartoon">卡通</option>
@@ -143,14 +203,13 @@
               <option value="vector_illustration/line_circuit">电路风格</option>
             </optgroup>
           </select>
-          <div class="dim" style="font-size:11.5px;margin-top:4px;">
-            Recraft 风格词汇以英文描述会更准。不需要选择图标库、笔画粗细。
-          </div>
+          <div class="hint">Recraft 风格词汇用英文描述会更准。不需要选择图标库、笔画粗细。</div>
         </div>
 
-        <div class="row" id="claude-options" style="margin-top:12px;">
-          <div>
-            <label>图标库风格</label>
+        <!-- Claude 选项 -->
+        <div id="claude-options">
+          <div class="panel-section">
+            <div class="panel-title">图标库风格</div>
             <select id="icon-library">
               <option value="lucide">Lucide 线性 24×24</option>
               <option value="heroicons-outline">Heroicons Outline</option>
@@ -162,108 +221,145 @@
               <option value="duotone">Duotone 双色</option>
               <option value="auto">Auto / 交给 AI</option>
             </select>
-            <div class="dim" style="font-size:11.5px;margin-top:4px;" id="library-hint">Lucide 风格：24×2px 线性，圆角结尾，几何对称。</div>
+            <div class="hint" id="library-hint">Lucide 风格：24× 线性，stroke=2，圆角结尾。</div>
           </div>
-        <div style="margin-top:12px;">
-          <label>颜色方案</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-            <div>
-              <div class="dim" style="font-size:11.5px;margin-bottom:6px;">主色 Primary（轮廓/主形状）</div>
-              <div style="display:flex;gap:6px;align-items:center;">
-                <input id="icon-color" type="color" value="#6aa6ff" style="width:38px;height:36px;padding:2px;cursor:pointer;" />
-                <input id="icon-color-text" type="text" value="#6aa6ff" style="flex:1;" />
-                <button class="btn small ghost" id="icon-color-clear" type="button" title="清空 → 使用 currentColor">×</button>
-              </div>
-              <div id="color-swatches" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
+
+          <div class="panel-section" id="stroke-row">
+            <div class="panel-title">笔画粗细 · <span class="dim" id="stroke-val" style="font-weight:500;">2.0</span></div>
+            <input id="icon-stroke" type="range" min="0.5" max="4" step="0.5" value="2" />
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title">颜色</div>
+          <div class="panel-row">
+            <label>主色 Primary</label>
+            <div class="color-row">
+              <input id="icon-color" type="color" value="#FF5C2C" />
+              <input id="icon-color-text" type="text" value="#FF5C2C" />
+              <button class="color-clear" id="icon-color-clear" type="button" title="清空 → 用 currentColor">×</button>
             </div>
-            <div>
-              <div class="dim" style="font-size:11.5px;margin-bottom:6px;">辅色 Secondary（填充/强调）</div>
-              <div style="display:flex;gap:6px;align-items:center;">
-                <input id="icon-color2" type="color" value="#9b6aff" style="width:38px;height:36px;padding:2px;cursor:pointer;" />
-                <input id="icon-color2-text" type="text" value="" placeholder="留空则不用辅色" style="flex:1;" />
-                <button class="btn small ghost" id="icon-color2-clear" type="button" title="清空">×</button>
-              </div>
-              <div id="color2-swatches" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
+            <div class="swatches" id="color-swatches"></div>
+          </div>
+          <div class="panel-row">
+            <label>辅色 Secondary</label>
+            <div class="color-row">
+              <input id="icon-color2" type="color" value="#8C3BFF" />
+              <input id="icon-color2-text" type="text" value="" placeholder="留空则不用" />
+              <button class="color-clear" id="icon-color2-clear" type="button">×</button>
             </div>
+            <div class="swatches" id="color2-swatches"></div>
           </div>
-          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-            <button class="btn small secondary" id="palette-mono" type="button">一个色</button>
-            <button class="btn small secondary" id="palette-complement" type="button">互补色</button>
-            <button class="btn small secondary" id="palette-analog" type="button">类似色</button>
-            <button class="btn small secondary" id="palette-shuffle" type="button">🎲 智能配色</button>
-          </div>
-        </div>
-
-        <div class="row" style="margin-top:12px;">
-          <div id="stroke-row">
-            <label>笔画粗细 <span class="dim" id="stroke-val">2.0</span></label>
-            <input id="icon-stroke" type="range" min="0.5" max="4" step="0.5" value="2" style="width:100%;accent-color:var(--accent);" />
-          </div>
-          <div>
-            <label>预览背景</label>
-            <div style="display:flex;gap:6px;">
-              <button class="btn small secondary preview-bg active" data-bg="light" type="button">白底</button>
-              <button class="btn small secondary preview-bg" data-bg="dark" type="button">黑底</button>
-              <button class="btn small secondary preview-bg" data-bg="checker" type="button">透明</button>
-            </div>
+          <div class="palette-actions">
+            <button class="btn secondary small" id="palette-mono" type="button">单色</button>
+            <button class="btn secondary small" id="palette-complement" type="button">互补</button>
+            <button class="btn secondary small" id="palette-analog" type="button">类似</button>
+            <button class="btn secondary small" id="palette-shuffle" type="button">🎲 随机</button>
           </div>
         </div>
 
-        <div style="display:flex;gap:8px;margin-top:18px;align-items:center;">
-          <button class="btn" id="icon-generate-btn">生成图标（扣 ¥0.05）</button>
-          <span id="icon-status" class="muted"></span>
+        <div class="sidebar-foot">
+          <button class="gen-btn" id="icon-generate-btn">生成图标</button>
+          <div class="gen-status" id="icon-status"></div>
         </div>
       </div>
-    </div>
+    </aside>
 
-    <div class="card hidden" id="result-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h2 style="margin:0;">结果</h2>
-        <div class="toolbar" id="size-toolbar" style="display:none;">
-          <span class="dim" style="font-size:12px;">预览尺寸</span>
-          <button class="btn small secondary preview-size active" data-size="160" type="button">160</button>
-          <button class="btn small secondary preview-size" data-size="256" type="button">256</button>
-          <button class="btn small secondary preview-size active" data-size="420" type="button">420</button>
-          <button class="btn small secondary preview-size" data-size="640" type="button">640</button>
+    <!-- =============== 中央画布 =============== -->
+    <main class="canvas">
+      <!-- toolbar -->
+      <div class="canvas-toolbar">
+        <div class="group">
+          <span class="dim" style="font-size:11.5px;padding:0 8px;">背景</span>
+          <button class="tool preview-bg active" data-bg="light">白底</button>
+          <button class="tool preview-bg" data-bg="dark">黑底</button>
+          <button class="tool preview-bg" data-bg="checker">透明</button>
         </div>
+        <div class="group" id="size-toolbar" style="display:none;">
+          <span class="dim" style="font-size:11.5px;padding:0 8px;">预览尺寸</span>
+          <button class="tool preview-size" data-size="160">S</button>
+          <button class="tool preview-size" data-size="256">M</button>
+          <button class="tool preview-size active" data-size="420">L</button>
+          <button class="tool preview-size" data-size="640">XL</button>
+        </div>
+        <div class="spacer"></div>
+        <a class="btn secondary small hidden" id="download-link" download>↓ 下载</a>
+        <button class="btn ghost small hidden" id="download-png-from-svg">PNG 1024</button>
+        <button class="btn ghost small hidden" id="download-png-2048">PNG 2048</button>
+        <button class="btn ghost small hidden" id="copy-svg">复制 SVG</button>
+        <button class="btn ghost small hidden" id="view-svg">源码</button>
       </div>
-      <div id="result-wrap" class="result-wrap">
-        <img id="result-img" />
-      </div>
-      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <a id="download-link" class="btn small" download="image.png">↓ 下载</a>
-        <button class="btn small secondary hidden" id="download-png-from-svg" type="button">PNG 1024</button>
-        <button class="btn small secondary hidden" id="download-png-2048" type="button">PNG 2048</button>
-        <button class="btn small ghost hidden" id="copy-svg" type="button">📝 复制 SVG</button>
-        <button class="btn small ghost hidden" id="view-svg" type="button">🔍 查看源码</button>
-        <span class="dim" id="result-info" style="font-size:12px;margin-left:auto;"></span>
-      </div>
-      <pre id="svg-source" class="mono hidden" style="margin-top:14px;padding:14px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:9px;max-height:280px;overflow:auto;font-size:12px;line-height:1.5;"></pre>
-    </div>
 
-    <div class="card">
-      <h2>历史</h2>
-      <div id="history" class="history-grid"></div>
-      <p id="history-empty" class="muted hidden">还没有生成记录。</p>
-    </div>
+      <!-- stage -->
+      <div class="canvas-stage" id="canvas-stage">
+        <!-- 空状态 -->
+        <div class="empty-state" id="empty-state">
+          <div class="em-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2 7h7l-5.5 4 2 7L12 16l-5.5 5 2-7L3 10h7z"/></svg>
+          </div>
+          <h3>开始你的创作</h3>
+          <p>输入提示词，选择参数，点击生成。结果会显示在这里，可以下载、复用、调整。</p>
+          <div class="examples">
+            <button class="ex" data-ex="A minimalist cloud sync icon, line style">云端同步图标</button>
+            <button class="ex" data-ex="3D isometric cube with neon edges">霓虹 3D 立方体</button>
+            <button class="ex" data-ex="Cute corgi sticker, vector flat illustration">柯基贴纸</button>
+            <button class="ex" data-ex="Lock with shield, security icon">安全锁图标</button>
+          </div>
+        </div>
+
+        <!-- 结果 -->
+        <div class="result-frame hidden" id="result-card">
+          <div id="result-wrap" class="result-wrap"></div>
+        </div>
+
+        <!-- 源码查看 -->
+        <pre id="svg-source" class="hidden mono" style="position:absolute;left:24px;right:24px;bottom:24px;max-height:40%;overflow:auto;background:#0E1116;color:#D1D5DB;padding:14px;border-radius:8px;font-size:11px;line-height:1.5;"></pre>
+      </div>
+
+      <!-- foot 信息栏 -->
+      <div class="canvas-foot hidden" id="canvas-foot">
+        <span class="meta-pill" id="result-info"></span>
+        <div class="actions" id="result-actions"></div>
+      </div>
+    </main>
   </div>
+
+  <!-- 历史抽屉 -->
+  <aside class="history-drawer" id="history-drawer">
+    <div class="hd-head">
+      <div class="hd-title">生成历史</div>
+      <button class="btn ghost small" id="close-history">×</button>
+    </div>
+    <div class="hd-list" id="history">
+      <div class="dim" id="history-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">还没有生成记录</div>
+    </div>
+  </aside>
 </div>
 
-<div id="toast" class="toast hidden"></div>
+<!-- Toast 占位（旧 ID 兼容） -->
+<div id="toast" class="toast hidden" style="position:fixed;right:20px;bottom:20px;z-index:200;"></div>
 
 <script>
+/* ===================== 基础工具 ===================== */
 const KEY_STORE = "image2_access_key";
 let accessKey = localStorage.getItem(KEY_STORE) || "";
 let refFile = null;
+let lastSvgText = "";
+let currentEngine = "claude";
+let priceClaudeCents = 5;
+let priceRecraftCents = 300;
 
-function $(id) { return document.getElementById(id); }
+const $ = (id) => document.getElementById(id);
+
 function toast(msg, type = "") {
   const el = $("toast");
   el.textContent = msg;
   el.className = "toast " + type;
-  setTimeout(() => el.classList.add("hidden"), 3500);
+  el.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add("hidden"), 3500);
 }
-function fmtMoney(cents) { return "¥" + (cents / 100).toFixed(2); }
+const fmtMoney = (cents) => "¥" + (cents / 100).toFixed(2);
 
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
@@ -275,6 +371,7 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+/* ===================== Login / Logout ===================== */
 async function login() {
   const key = $("key-input").value.trim();
   if (!key) { toast("请填写 access key", "error"); return; }
@@ -289,26 +386,24 @@ async function login() {
     showApp(me);
   } catch (e) { toast("登录失败：" + e.message, "error"); }
 }
-
 function logout() {
-  localStorage.removeItem(KEY_STORE);
-  accessKey = "";
+  localStorage.removeItem(KEY_STORE); accessKey = "";
   $("app").classList.add("hidden");
   $("login").classList.remove("hidden");
 }
-
 async function showApp(me) {
   $("login").classList.add("hidden");
   $("app").classList.remove("hidden");
   $("user-name").textContent = me.name;
+  $("user-avatar").textContent = (me.name || "U").charAt(0).toUpperCase();
   $("balance").textContent = fmtMoney(me.balance_cents);
   $("price").textContent = (me.price_cents / 100).toFixed(2);
+  $("price-img-pill").textContent = (me.price_cents / 100).toFixed(2);
   priceClaudeCents = me.price_cents || 5;
   priceRecraftCents = me.price_recraft_cents || 300;
   updateIconPriceLabel();
   await refreshHistory();
 }
-
 async function refreshMe() {
   try {
     const me = await api("/api/me", {
@@ -317,72 +412,162 @@ async function refreshMe() {
       body: JSON.stringify({ access_key: accessKey }),
     });
     $("balance").textContent = fmtMoney(me.balance_cents);
-  } catch (e) {}
+  } catch {}
 }
 
+/* ===================== History ===================== */
 async function refreshHistory() {
   try {
     const data = await api("/api/history?access_key=" + encodeURIComponent(accessKey));
     const box = $("history");
     box.innerHTML = "";
-    $("history-empty").classList.toggle("hidden", data.items.length > 0);
+    if (!data.items.length) {
+      box.innerHTML = '<div class="dim" id="history-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">还没有生成记录</div>';
+      return;
+    }
     for (const it of data.items) {
       const div = document.createElement("div");
-      div.className = "history-item" + (it.status === "failed" ? " failed" : "") +
-                      (it.kind === "icon" ? " icon" : "");
-      const img = document.createElement("img");
+      div.className = "h-item";
+      const thumb = document.createElement("div");
+      thumb.className = "thumb";
       if (it.result_url) {
+        const img = document.createElement("img");
         img.src = it.result_url + "?access_key=" + encodeURIComponent(accessKey);
+        thumb.appendChild(img);
         div.onclick = () => window.open(img.src, "_blank");
       } else {
-        img.alt = "(失败)";
+        thumb.textContent = "✗";
+        thumb.style.color = "var(--c-danger)";
       }
+      const info = document.createElement("div");
+      info.className = "info";
+      const p = document.createElement("div");
+      p.className = "p"; p.title = it.prompt; p.textContent = it.prompt;
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.title = it.prompt + (it.error ? " · " + it.error : "");
-      meta.textContent = (it.status === "failed" ? "✗ " : "") + it.prompt;
+      meta.textContent = (it.kind === "icon" ? "SVG" : "IMG") + " · " + (it.status === "failed" ? "失败" : "完成");
+      info.appendChild(p); info.appendChild(meta);
 
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.textContent = it.kind === "icon" ? "SVG" : "IMG";
-
-      const delBtn = document.createElement("button");
-      delBtn.className = "del-btn";
-      delBtn.title = "删除";
-      delBtn.textContent = "×";
-      delBtn.onclick = async (e) => {
+      const del = document.createElement("button");
+      del.className = "btn ghost small";
+      del.style.cssText = "padding:0;width:24px;height:24px;";
+      del.textContent = "×";
+      del.onclick = async (e) => {
         e.stopPropagation();
-        if (!confirm("删除这条记录？图片会一起删。")) return;
+        if (!confirm("删除这条记录？")) return;
         try {
           await api(`/api/generations/${it.id}?access_key=` + encodeURIComponent(accessKey),
                     { method: "DELETE" });
           refreshHistory();
         } catch (err) { toast("删除失败：" + err.message, "error"); }
       };
-
-      div.appendChild(img);
-      div.appendChild(badge);
-      div.appendChild(meta);
-      div.appendChild(delBtn);
+      div.appendChild(thumb); div.appendChild(info); div.appendChild(del);
       box.appendChild(div);
     }
-  } catch (e) {}
+  } catch {}
 }
 
+/* ===================== Dropzone ===================== */
 function setRefFile(f) {
   refFile = f;
-  const prev = $("ref-preview");
+  const prev = $("ref-preview"), hint = $("drop-hint"), clear = $("clear-ref");
   if (f) {
     prev.src = URL.createObjectURL(f);
     prev.classList.remove("hidden");
-    $("drop-hint").classList.add("hidden");
+    hint.classList.add("hidden");
+    clear.classList.remove("hidden");
   } else {
-    prev.classList.add("hidden");
-    prev.removeAttribute("src");
-    $("drop-hint").classList.remove("hidden");
+    prev.classList.add("hidden"); prev.removeAttribute("src");
+    hint.classList.remove("hidden");
+    clear.classList.add("hidden");
   }
 }
 
+/* ===================== 画布状态 ===================== */
+function showEmpty() {
+  $("empty-state").classList.remove("hidden");
+  $("result-card").classList.add("hidden");
+  $("canvas-foot").classList.add("hidden");
+}
+function showLoading(text, hint) {
+  $("empty-state").classList.add("hidden");
+  $("result-card").classList.remove("hidden");
+  $("result-card").className = "result-frame";
+  $("result-wrap").innerHTML = `
+    <div class="cv-loading">
+      <div class="ring"></div>
+      <div class="ltext">${text}</div>
+      <div class="lhint">${hint || ""}</div>
+    </div>`;
+  $("result-card").style.cssText = "min-width:320px;min-height:320px;width:480px;height:480px;";
+  $("canvas-foot").classList.add("hidden");
+}
+function showImageResult(url) {
+  $("empty-state").classList.add("hidden");
+  $("result-card").className = "result-frame";
+  $("result-card").classList.remove("hidden");
+  $("result-card").style.cssText = "";
+  const wrap = $("result-wrap");
+  wrap.className = "";
+  wrap.innerHTML = `<img src="${url}" />`;
+  $("download-link").href = url;
+  $("download-link").download = "image.png";
+  $("download-link").classList.remove("hidden");
+  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.add("hidden"));
+  $("size-toolbar").style.display = "none";
+  $("svg-source").classList.add("hidden");
+  $("result-info").textContent = "";
+  $("canvas-foot").classList.remove("hidden");
+  applyResultBg();
+}
+function showSvgResult(svgText, downloadName) {
+  lastSvgText = svgText;
+  const blob = new Blob([svgText], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(blob);
+  $("empty-state").classList.add("hidden");
+  $("result-card").className = "result-frame icon-mode";
+  $("result-card").classList.remove("hidden");
+  $("result-card").style.cssText = "";
+  const wrap = $("result-wrap");
+  wrap.className = "";
+  wrap.innerHTML = `<img src="${url}" />`;
+  $("download-link").href = url;
+  $("download-link").download = downloadName + ".svg";
+  $("download-link").textContent = "↓ 下载 SVG";
+  $("download-link").classList.remove("hidden");
+  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.remove("hidden"));
+  $("size-toolbar").style.display = "";
+  $("svg-source").classList.add("hidden");
+  $("svg-source").textContent = svgText;
+  const m = svgText.match(/viewBox="([\d.\-\s]+)"/);
+  const sizeStr = m ? m[1].trim() : "未知";
+  const bytes = new Blob([svgText]).size;
+  $("result-info").textContent = `viewBox: ${sizeStr} · ${bytes} 字节`;
+  $("canvas-foot").classList.remove("hidden");
+  applyPreviewSize(getActiveSize());
+  applyResultBg();
+}
+function getActiveSize() {
+  const b = document.querySelector(".preview-size.active");
+  return b ? parseInt(b.dataset.size, 10) : 420;
+}
+function applyPreviewSize(px) {
+  const card = $("result-card");
+  if (card && card.classList.contains("icon-mode")) {
+    card.style.width = px + "px";
+    card.style.height = px + "px";
+  }
+}
+function applyResultBg() {
+  const active = document.querySelector(".preview-bg.active");
+  const kind = active ? active.dataset.bg : "light";
+  const card = $("result-card");
+  card.classList.remove("bg-dark","bg-checker");
+  if (kind === "dark") card.classList.add("bg-dark");
+  else if (kind === "checker") card.classList.add("bg-checker");
+}
+
+/* ===================== 生图 ===================== */
 async function generate() {
   const prompt = $("prompt").value.trim();
   if (!prompt) { toast("Prompt 不能为空", "error"); return; }
@@ -395,83 +580,73 @@ async function generate() {
 
   const btn = $("generate-btn");
   btn.disabled = true;
-  $("status").innerHTML = '<span class="spinner"></span> 生成中（图片可能需要 30-90 秒）...';
+  showLoading("生成中", "图片可能需要 30-90 秒");
+  $("status").textContent = "上传中...";
   try {
     const data = await api("/api/generate", { method: "POST", body: fd });
     $("balance").textContent = fmtMoney(data.balance_cents);
-    const url = data.result_url + "?access_key=" + encodeURIComponent(accessKey);
-    showImageResult(url);
+    showImageResult(data.result_url + "?access_key=" + encodeURIComponent(accessKey));
     $("status").textContent = "完成";
     toast("生成成功", "success");
     refreshHistory();
   } catch (e) {
+    showEmpty();
     $("status").textContent = "";
     toast("生成失败：" + e.message, "error");
     refreshMe();
-  } finally {
-    btn.disabled = false;
+  } finally { btn.disabled = false; }
+}
+
+async function generateIcon() {
+  const prompt = $("icon-prompt").value.trim();
+  if (!prompt) { toast("描述不能为空", "error"); return; }
+  const fd = new FormData();
+  fd.append("access_key", accessKey);
+  fd.append("prompt", prompt);
+  fd.append("library", $("icon-library").value);
+  fd.append("engine", currentEngine);
+  if (currentEngine === "recraft") fd.append("recraft_style", $("recraft-style").value);
+  const cp = $("icon-color-text").value.trim();
+  const cs = $("icon-color2-text").value.trim();
+  if (cp) fd.append("color_primary", cp);
+  if (cs) fd.append("color_secondary", cs);
+  if (currentEngine === "claude") {
+    const lib = $("icon-library").value;
+    if (NEEDS_STROKE.has(lib)) fd.append("stroke_width", $("icon-stroke").value);
   }
-}
 
-function showImageResult(url) {
-  const wrap = $("result-wrap");
-  wrap.className = "result-wrap image-mode";
-  wrap.innerHTML = '<img id="result-img" src="' + url + '" />';
-  $("download-link").href = url;
-  $("download-link").download = "image.png";
-  $("download-link").classList.remove("hidden");
-  // 隐藏图标专用按钮
-  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.add("hidden"));
-  $("size-toolbar").style.display = "none";
-  $("svg-source").classList.add("hidden");
-  $("result-info").textContent = "";
-  $("result-card").classList.remove("hidden");
-}
-
-let lastSvgText = "";
-function showSvgResult(svgText, downloadName) {
-  lastSvgText = svgText;
-  const blob = new Blob([svgText], { type: "image/svg+xml" });
-  const url = URL.createObjectURL(blob);
-  const wrap = $("result-wrap");
-  wrap.className = "result-wrap icon-mode";
-  wrap.innerHTML = '<img src="' + url + '" />';
-  $("download-link").href = url;
-  $("download-link").download = downloadName + ".svg";
-  $("download-link").textContent = "↓ 下载 SVG";
-  $("download-link").classList.remove("hidden");
-  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.remove("hidden"));
-  $("size-toolbar").style.display = "flex";
-  $("svg-source").classList.add("hidden");
-  $("svg-source").textContent = svgText;
-  // 从 SVG 抽 viewBox 展示尺寸信息
-  const m = svgText.match(/viewBox="([\d.\-\s]+)"/);
-  const sizeStr = m ? m[1].trim() : "未知";
-  const bytes = new Blob([svgText]).size;
-  $("result-info").textContent = `viewBox: ${sizeStr} · ${bytes} 字节`;
-  $("result-card").classList.remove("hidden");
-  // 应用预览背景
-  const active = document.querySelector(".preview-bg.active");
-  setPreviewBg(active ? active.dataset.bg : "light");
-  // 应用预览尺寸
-  applyPreviewSize(getActiveSize());
-}
-
-function getActiveSize() {
-  const b = document.querySelector(".preview-size.active");
-  return b ? parseInt(b.dataset.size, 10) : 420;
-}
-function applyPreviewSize(px) {
-  const img = $("result-wrap").querySelector("img");
-  if (img) { img.style.width = px + "px"; img.style.height = px + "px"; }
+  const btn = $("icon-generate-btn");
+  btn.disabled = true;
+  showLoading(
+    currentEngine === "recraft" ? "Recraft 顶级模型渲染中" : "Claude 推理中",
+    currentEngine === "recraft" ? "约 8-20 秒" : "约 15-30 秒"
+  );
+  $("icon-status").textContent = "提交中...";
+  try {
+    const data = await api("/api/generate-icon", { method: "POST", body: fd });
+    $("balance").textContent = fmtMoney(data.balance_cents);
+    const r = await fetch(data.result_url + "?access_key=" + encodeURIComponent(accessKey));
+    const svg = await r.text();
+    showSvgResult(svg, "icon-" + data.generation_id);
+    if (data.samples && data.samples.length) {
+      $("result-info").textContent += " · 参考 " + data.samples.join(", ");
+    }
+    $("icon-status").textContent = "完成";
+    toast("生成成功", "success");
+    refreshHistory();
+  } catch (e) {
+    showEmpty();
+    $("icon-status").textContent = "";
+    toast("生成失败：" + e.message, "error");
+    refreshMe();
+  } finally { btn.disabled = false; }
 }
 
 async function svgToPngDownload(filename, target = 1024) {
   if (!lastSvgText) return;
   const blob = new Blob([lastSvgText], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
-  const img = new Image();
-  img.crossOrigin = "anonymous";
+  const img = new Image(); img.crossOrigin = "anonymous";
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
   let w = img.naturalWidth || 0, h = img.naturalHeight || 0;
   if (!w || !h) {
@@ -486,8 +661,7 @@ async function svgToPngDownload(filename, target = 1024) {
   const canvas = document.createElement("canvas");
   canvas.width = cw; canvas.height = ch;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, cw, ch);
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cw, ch);
   ctx.drawImage(img, 0, 0, cw, ch);
   URL.revokeObjectURL(url);
   canvas.toBlob((png) => {
@@ -498,123 +672,22 @@ async function svgToPngDownload(filename, target = 1024) {
   }, "image/png");
 }
 
-async function generateIcon() {
-  const prompt = $("icon-prompt").value.trim();
-  if (!prompt) { toast("描述不能为空", "error"); return; }
-  const fd = new FormData();
-  fd.append("access_key", accessKey);
-  fd.append("prompt", prompt);
-  fd.append("library", $("icon-library").value);
-  // 引擎
-  fd.append("engine", currentEngine);
-  if (currentEngine === "recraft") {
-    fd.append("recraft_style", $("recraft-style").value);
-  }
-  // 双色
-  const cp = $("icon-color-text").value.trim();
-  const cs = $("icon-color2-text").value.trim();
-  if (cp) fd.append("color_primary", cp);
-  if (cs) fd.append("color_secondary", cs);
-  // 线性库才传 stroke_width（Recraft 不需要）
-  if (currentEngine === "claude") {
-    const lib = $("icon-library").value;
-    if (NEEDS_STROKE.has(lib)) {
-      fd.append("stroke_width", $("icon-stroke").value);
-    }
-  }
-
-  const btn = $("icon-generate-btn");
-  btn.disabled = true;
-  $("icon-status").innerHTML = currentEngine === "recraft"
-    ? '<span class="spinner"></span> Recraft 顶级模型渲染中（约 8-20 秒）...'
-    : '<span class="spinner"></span> Claude 推理中（约 15-30 秒）...';
-  try {
-    const data = await api("/api/generate-icon", { method: "POST", body: fd });
-    $("balance").textContent = fmtMoney(data.balance_cents);
-    const r = await fetch(data.result_url + "?access_key=" + encodeURIComponent(accessKey));
-    const svg = await r.text();
-    showSvgResult(svg, "icon-" + data.generation_id);
-    if (data.samples && data.samples.length) {
-      const info = $("result-info");
-      info.textContent = info.textContent + " · 参考: " + data.samples.join(", ");
-    }
-    $("icon-status").textContent = "完成";
-    toast("生成成功", "success");
-    refreshHistory();
-  } catch (e) {
-    $("icon-status").textContent = "";
-    toast("生成失败：" + e.message, "error");
-    refreshMe();
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// 初始化
-$("login-btn").onclick = login;
-$("key-input").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
-$("logout").onclick = (e) => { e.preventDefault(); logout(); };
-$("generate-btn").onclick = generate;
-$("icon-generate-btn").onclick = generateIcon;
-$("download-png-from-svg").onclick = () => svgToPngDownload("icon", 1024);
-$("download-png-2048").onclick = () => svgToPngDownload("icon", 2048);
-$("copy-svg").onclick = async () => {
-  if (!lastSvgText) return;
-  try {
-    await navigator.clipboard.writeText(lastSvgText);
-    toast("SVG 源码已复制", "success");
-  } catch (e) {
-    toast("复制失败：" + e.message, "error");
-  }
-};
-$("view-svg").onclick = () => {
-  $("svg-source").classList.toggle("hidden");
-};
-document.querySelectorAll(".preview-size").forEach((b) => {
-  b.onclick = () => {
-    document.querySelectorAll(".preview-size").forEach((x) => x.classList.remove("active"));
-    b.classList.add("active");
-    applyPreviewSize(parseInt(b.dataset.size, 10));
-  };
-});
-
-// ---------- 图标交互逻辑 ----------
-const NEEDS_STROKE = new Set([
-  "lucide", "heroicons-outline", "phosphor", "tabler", "feather", "duotone", "auto",
-]);
-const LIBRARY_HINTS = {
-  "lucide": "Lucide 风格：24× 线性，stroke=2，圆角结尾。社区最活跃。",
-  "heroicons-outline": "Heroicons Outline：24× 细线（stroke=1.5），Tailwind 出品。",
-  "heroicons-solid": "Heroicons Solid：24× 填充实心，无 stroke，扭孔用 evenodd。",
-  "phosphor": "Phosphor regular：256× 大画布精致线性，友好圆润。",
-  "tabler": "Tabler：24× 线性，允许更复杂结构。",
-  "feather": "Feather：极简主义，负空间多。",
-  "material": "Material Symbols：几何块面填充，对齐 4px 网格。",
-  "duotone": "Duotone：线性骨架 + 20% 透明色块。",
-  "auto": "交给 AI 自由发挥。",
-};
+/* ===================== 颜色工具 ===================== */
 const PRESET_COLORS = [
-  "#000000", "#ffffff", "#6aa6ff", "#9b6aff",
-  "#3ec97b", "#f4b942", "#ef5a5a", "#22c1c3",
+  "#000000", "#FFFFFF", "#FF5C2C", "#FF3B7C", "#8C3BFF",
+  "#2563EB", "#16A34A", "#D97706", "#0EA5E9", "#E11D48",
 ];
-// 创建预设色板
 function renderSwatches(boxId, targetColor, targetText) {
-  const box = $(boxId);
-  if (!box) return;
+  const box = $(boxId); if (!box) return;
   box.innerHTML = "";
   PRESET_COLORS.forEach((c) => {
     const s = document.createElement("button");
-    s.type = "button";
-    s.style.cssText = `width:20px;height:20px;border-radius:5px;border:1px solid #2e3650;background:${c};cursor:pointer;padding:0;`;
-    s.title = c;
+    s.type = "button"; s.className = "sw";
+    s.style.background = c; s.title = c;
     s.onclick = () => { $(targetColor).value = c; $(targetText).value = c; };
     box.appendChild(s);
   });
 }
-renderSwatches("color-swatches", "icon-color", "icon-color-text");
-renderSwatches("color2-swatches", "icon-color2", "icon-color2-text");
-
-// 取色器 <-> 文本 双向同步
 function bindColorSync(picker, text) {
   $(picker).addEventListener("input", (e) => { $(text).value = e.target.value; });
   $(text).addEventListener("input", (e) => {
@@ -622,12 +695,6 @@ function bindColorSync(picker, text) {
     if (/^#[0-9a-fA-F]{6}$/.test(v)) $(picker).value = v;
   });
 }
-bindColorSync("icon-color", "icon-color-text");
-bindColorSync("icon-color2", "icon-color2-text");
-$("icon-color-clear").onclick = () => { $("icon-color-text").value = ""; };
-$("icon-color2-clear").onclick = () => { $("icon-color2-text").value = ""; };
-
-// 颜色工具
 function hexToHsl(hex) {
   const m = hex.replace("#", "");
   const r = parseInt(m.substr(0, 2), 16) / 255;
@@ -668,42 +735,110 @@ function setBothColors(p, s) {
     else { $("icon-color2-text").value = ""; }
   }
 }
+
+/* ===================== 库提示 / 笔画 ===================== */
+const NEEDS_STROKE = new Set([
+  "lucide", "heroicons-outline", "phosphor", "tabler", "feather", "duotone", "auto",
+]);
+const LIBRARY_HINTS = {
+  "lucide": "Lucide 风格：24× 线性，stroke=2，圆角结尾。",
+  "heroicons-outline": "Heroicons Outline：24× 细线 (stroke=1.5)。",
+  "heroicons-solid": "Heroicons Solid：24× 填充实心，无 stroke。",
+  "phosphor": "Phosphor regular：256× 大画布，友好圆润。",
+  "tabler": "Tabler：24× 线性，允许复杂结构。",
+  "feather": "Feather：极简，负空间多。",
+  "material": "Material：几何块面填充，4px 网格。",
+  "duotone": "Duotone：线性骨架 + 20% 透明色块。",
+  "auto": "交给 AI 自由发挥。",
+};
+
+function updateIconPriceLabel() {
+  const c = currentEngine === "recraft" ? priceRecraftCents : priceClaudeCents;
+  const yuan = (c / 100).toFixed(2);
+  const btn = $("icon-generate-btn");
+  btn.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2 7h7l-5.5 4 2 7L12 16l-5.5 5 2-7L3 10h7z"/></svg>
+    生成图标 <span class="price-pill">¥${yuan}</span>`;
+}
+
+function currentSize() {
+  const v = $("size").value;
+  if (v === "__custom") {
+    return ($("size-custom").value || "").trim().toLowerCase() || "1024x1024";
+  }
+  return v;
+}
+
+/* ===================== 事件绑定 ===================== */
+// 登录
+$("login-btn").onclick = login;
+$("key-input").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+$("logout").onclick = (e) => { e.preventDefault(); logout(); };
+
+// 生成
+$("generate-btn").onclick = generate;
+$("icon-generate-btn").onclick = generateIcon;
+
+// 工具栏
+$("download-png-from-svg").onclick = () => svgToPngDownload("icon", 1024);
+$("download-png-2048").onclick = () => svgToPngDownload("icon", 2048);
+$("copy-svg").onclick = async () => {
+  if (!lastSvgText) return;
+  try { await navigator.clipboard.writeText(lastSvgText); toast("SVG 源码已复制", "success"); }
+  catch (e) { toast("复制失败：" + e.message, "error"); }
+};
+$("view-svg").onclick = () => $("svg-source").classList.toggle("hidden");
+
+// 预览尺寸
+document.querySelectorAll(".preview-size").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".preview-size").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    applyPreviewSize(parseInt(b.dataset.size, 10));
+  };
+});
+// 预览背景
+document.querySelectorAll(".preview-bg").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".preview-bg").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active"); applyResultBg();
+  };
+});
+
+// 色板
+renderSwatches("color-swatches", "icon-color", "icon-color-text");
+renderSwatches("color2-swatches", "icon-color2", "icon-color2-text");
+bindColorSync("icon-color", "icon-color-text");
+bindColorSync("icon-color2", "icon-color2-text");
+$("icon-color-clear").onclick = () => { $("icon-color-text").value = ""; };
+$("icon-color2-clear").onclick = () => { $("icon-color2-text").value = ""; };
 $("palette-mono").onclick = () => {
-  const p = $("icon-color-text").value.trim() || "#6aa6ff";
-  setBothColors(p, "");
+  const p = $("icon-color-text").value.trim() || "#FF5C2C"; setBothColors(p, "");
 };
 $("palette-complement").onclick = () => {
-  const p = $("icon-color-text").value.trim() || "#6aa6ff";
+  const p = $("icon-color-text").value.trim() || "#FF5C2C";
   if (!/^#[0-9a-fA-F]{6}$/.test(p)) return toast("主色格式不对", "error");
   const [h, s, l] = hexToHsl(p);
   setBothColors(p, hslToHex(h + 180, s, l));
 };
 $("palette-analog").onclick = () => {
-  const p = $("icon-color-text").value.trim() || "#6aa6ff";
+  const p = $("icon-color-text").value.trim() || "#FF5C2C";
   if (!/^#[0-9a-fA-F]{6}$/.test(p)) return toast("主色格式不对", "error");
   const [h, s, l] = hexToHsl(p);
   setBothColors(p, hslToHex(h + 30, s, l));
 };
 $("palette-shuffle").onclick = () => {
   const h = Math.floor(Math.random() * 360);
-  const p = hslToHex(h, 0.65, 0.6);
-  const s = hslToHex(h + (Math.random() < 0.5 ? 150 : 30), 0.6, 0.55);
-  setBothColors(p, s);
+  setBothColors(
+    hslToHex(h, 0.65, 0.6),
+    hslToHex(h + (Math.random() < 0.5 ? 150 : 30), 0.6, 0.55)
+  );
 };
+
 // 引擎切换
-let currentEngine = "claude";
-let priceClaudeCents = 5;
-let priceRecraftCents = 300;
-
-function updateIconPriceLabel() {
-  const c = currentEngine === "recraft" ? priceRecraftCents : priceClaudeCents;
-  const yuan = (c / 100).toFixed(2);
-  $("icon-generate-btn").textContent = `生成图标（扣 ¥${yuan}）`;
-}
-
-document.querySelectorAll(".engine-btn").forEach((b) => {
+document.querySelectorAll(".engine-card").forEach((b) => {
   b.onclick = () => {
-    document.querySelectorAll(".engine-btn").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll(".engine-card").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     currentEngine = b.dataset.engine;
     $("recraft-options").classList.toggle("hidden", currentEngine !== "recraft");
@@ -711,33 +846,18 @@ document.querySelectorAll(".engine-btn").forEach((b) => {
     updateIconPriceLabel();
   };
 });
-// 库切换时更新提示 + 笔画可见性
-// 笔画调节
-$("icon-stroke").addEventListener("input", (e) => { $("stroke-val").textContent = parseFloat(e.target.value).toFixed(1); });
+
+// 笔画 / 库
+$("icon-stroke").addEventListener("input", (e) => {
+  $("stroke-val").textContent = parseFloat(e.target.value).toFixed(1);
+});
 $("icon-library").addEventListener("change", () => {
   const lib = $("icon-library").value;
   $("library-hint").textContent = LIBRARY_HINTS[lib] || "";
-  $("stroke-row").style.visibility = NEEDS_STROKE.has(lib) ? "" : "hidden";
+  $("stroke-row").style.display = NEEDS_STROKE.has(lib) ? "" : "none";
 });
-// 预览背景切换
-document.querySelectorAll(".preview-bg").forEach((b) => {
-  b.onclick = () => {
-    document.querySelectorAll(".preview-bg").forEach((x) => x.classList.remove("active"));
-    b.classList.add("active");
-    setPreviewBg(b.dataset.bg);
-  };
-});
-function setPreviewBg(kind) {
-  const wrap = $("result-wrap");
-  if (!wrap) return;
-  if (kind === "light") wrap.style.background = "#fff";
-  else if (kind === "dark") wrap.style.background = "#0b0d12";
-  else if (kind === "checker")
-    wrap.style.background = "repeating-conic-gradient(#2a2f3e 0% 25%, #1a1f2e 0% 50%) 50%/24px 24px";
-  wrap.dataset.bg = kind;
-}
 
-// Tab 切换
+// Tab
 document.querySelectorAll(".tab-btn").forEach((b) => {
   b.onclick = () => {
     document.querySelectorAll(".tab-btn").forEach((x) => x.classList.remove("active"));
@@ -748,29 +868,39 @@ document.querySelectorAll(".tab-btn").forEach((b) => {
   };
 });
 
+// Dropzone
 const drop = $("drop");
 drop.onclick = () => $("file").click();
 $("file").onchange = (e) => { if (e.target.files[0]) setRefFile(e.target.files[0]); };
-drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("dragover"); });
-drop.addEventListener("dragleave", () => drop.classList.remove("dragover"));
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
 drop.addEventListener("drop", (e) => {
-  e.preventDefault();
-  drop.classList.remove("dragover");
+  e.preventDefault(); drop.classList.remove("drag");
   if (e.dataTransfer.files[0]) setRefFile(e.dataTransfer.files[0]);
 });
 $("clear-ref").onclick = () => { setRefFile(null); $("file").value = ""; };
 
-function currentSize() {
-  const v = $("size").value;
-  if (v === "__custom") {
-    const c = ($("size-custom").value || "").trim().toLowerCase();
-    return c || "1024x1024";
-  }
-  return v;
-}
+// 尺寸
 $("size").onchange = () => {
   $("size-custom").classList.toggle("hidden", $("size").value !== "__custom");
 };
+
+// 例子提示
+document.querySelectorAll(".empty-state .ex").forEach((b) => {
+  b.onclick = () => {
+    const txt = b.dataset.ex;
+    const isIcon = !$("pane-icon").classList.contains("hidden");
+    $(isIcon ? "icon-prompt" : "prompt").value = txt;
+    $(isIcon ? "icon-prompt" : "prompt").focus();
+  };
+});
+
+// 历史抽屉
+$("open-history").onclick = () => $("history-drawer").classList.toggle("open");
+$("close-history").onclick = () => $("history-drawer").classList.remove("open");
+
+// 初始化可见性
+updateIconPriceLabel();
 
 // 自动登录
 if (accessKey) {

@@ -4,94 +4,135 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>image2 — 管理面板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/static/app.css" />
+<style>
+  /* admin 页紫色品牌色，覆盖默认橙 */
+  body { overflow: auto; }
+  .admin-shell { height: auto; min-height: 100vh; }
+</style>
 </head>
-<body>
+<body class="theme-admin">
 
-<div id="login" class="container" style="max-width:420px;margin-top:80px;">
-  <div class="card" style="padding:32px;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#9b6aff 0%,#ef5a5a 100%);box-shadow:0 6px 20px rgba(155,106,255,0.32);"></div>
+<!-- Login -->
+<div id="login" class="login-shell">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="mark" style="background:linear-gradient(135deg,#8C3BFF 0%,#FF3B7C 50%,#FF5C2C 100%);"></div>
       <div>
-        <div style="font-size:18px;font-weight:700;letter-spacing:.3px;">image2 · 管理</div>
-        <div class="dim" style="font-size:12px;">管理员控制台</div>
+        <div class="name">image2</div>
+        <div class="tag">管理后台 · Admin</div>
       </div>
     </div>
-    <label>管理员密码</label>
-    <input id="pw" type="password" autocomplete="current-password" />
-    <button class="btn" id="login-btn" style="margin-top:18px;width:100%;">登录</button>
+    <h2>管理员登录</h2>
+    <p class="lead">输入管理员密码继续</p>
+    <div class="field">
+      <label>密码</label>
+      <input id="pw" type="password" autocomplete="current-password" />
+    </div>
+    <button class="btn primary full lg" id="login-btn" style="margin-top:8px;">登录</button>
   </div>
 </div>
 
-<div id="app" class="hidden">
+<!-- App -->
+<div id="app" class="admin-shell hidden">
+  <!-- 顶栏 -->
   <div class="topbar">
-    <div class="brand" style="--brand-grad: linear-gradient(135deg,#9b6aff 0%,#ef5a5a 100%);">image2 · 管理</div>
-    <div class="meta">
-      <a href="/" target="_blank">↗ 用户面板</a>
-      <span class="sep">|</span>
-      <a href="#" id="logout">退出</a>
+    <div class="topbar-left">
+      <div class="brand">
+        <div class="brand-mark" style="background:linear-gradient(135deg,#8C3BFF 0%,#FF3B7C 50%,#FF5C2C 100%);box-shadow:0 4px 14px rgba(140,59,255,.30);"></div>
+        <span class="brand-name">image2</span>
+        <span class="brand-tag">admin</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="user-chip">
+        <span class="avatar" style="background:linear-gradient(135deg,#8C3BFF,#FF3B7C);">A</span>
+        <span>Administrator</span>
+        <a href="#" id="logout" style="margin-left:6px;color:#9097A4;font-size:12px;">退出</a>
+      </span>
     </div>
   </div>
 
-  <div class="container wide">
-    <div class="stat-grid">
-      <div class="stat-card"><div class="label">总用户数</div><div class="value" id="s-users">0</div></div>
-      <div class="stat-card"><div class="label">今日调用</div><div class="value" id="s-today">0</div></div>
-      <div class="stat-card"><div class="label">累计扣款</div><div class="value" id="s-cost">¥0.00</div></div>
-      <div class="stat-card"><div class="label">失败次数</div><div class="value" id="s-failed">0</div></div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <h2 style="margin:0;">用户</h2>
-        <div class="toolbar">
-          <input id="new-name" type="text" placeholder="新用户名" style="width:200px;" />
-          <button class="btn small" id="add-user">+ 新建用户</button>
+  <!-- Main -->
+  <main class="admin-main">
+    <!-- Stats -->
+    <div class="admin-card">
+      <h3>概览</h3>
+      <div class="kv-grid">
+        <div class="kv">
+          <div class="k">总用户数</div>
+          <div class="v" id="s-users">0</div>
+        </div>
+        <div class="kv">
+          <div class="k">今日调用</div>
+          <div class="v" id="s-today">0</div>
+        </div>
+        <div class="kv">
+          <div class="k">累计扣款</div>
+          <div class="v" id="s-cost">¥0.00</div>
+        </div>
+        <div class="kv">
+          <div class="k">失败次数</div>
+          <div class="v" id="s-failed">0</div>
         </div>
       </div>
-      <div class="scroll-x">
-      <table>
-        <thead><tr>
-          <th>ID</th><th>名字</th><th>Access Key</th><th>余额</th><th>调用</th><th>创建</th><th>操作</th>
-        </tr></thead>
-        <tbody id="users-tbody"></tbody>
-      </table>
+    </div>
+
+    <!-- Users -->
+    <div class="admin-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-4);">
+        <h3 style="margin:0;">用户管理</h3>
+        <div style="display:flex;gap:8px;">
+          <input id="new-name" type="text" placeholder="新用户名" style="width:200px;" />
+          <button class="btn primary" id="add-user">+ 新建用户</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;border:1px solid var(--c-line);border-radius:var(--r-md);">
+        <table class="data">
+          <thead>
+            <tr><th>ID</th><th>名字</th><th>Access Key</th><th>余额</th><th>调用</th><th>创建时间</th><th style="width:240px;">操作</th></tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
       </div>
     </div>
 
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <h2 style="margin:0;">调用记录</h2>
-        <div class="toolbar">
-          <select id="filter-kind">
+    <!-- Generations -->
+    <div class="admin-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-4);flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;">生成记录</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select id="filter-kind" style="width:120px;">
             <option value="">全部类型</option>
             <option value="image">图片</option>
             <option value="icon">图标</option>
           </select>
-          <select id="filter-status">
+          <select id="filter-status" style="width:120px;">
             <option value="">全部状态</option>
             <option value="success">成功</option>
             <option value="failed">失败</option>
             <option value="pending">进行中</option>
           </select>
-          <select id="filter-user"><option value="">全部用户</option></select>
-          <button class="btn small ghost" id="refresh-gen">↻ 刷新</button>
+          <select id="filter-user" style="width:200px;"><option value="">全部用户</option></select>
+          <button class="btn ghost" id="refresh-gen">↻ 刷新</button>
         </div>
       </div>
-      <div class="scroll-x">
-      <table>
-        <thead><tr>
-          <th>ID</th><th>时间</th><th>用户</th><th>类型</th><th>Prompt</th>
-          <th>尺寸/风格</th><th>参考</th><th>状态</th><th>费用</th><th>结果</th><th>操作</th>
-        </tr></thead>
-        <tbody id="gen-tbody"></tbody>
-      </table>
+      <div style="overflow-x:auto;border:1px solid var(--c-line);border-radius:var(--r-md);">
+        <table class="data">
+          <thead>
+            <tr><th>ID</th><th>时间</th><th>用户</th><th>类型</th><th>Prompt</th><th>规格</th><th>参考</th><th>状态</th><th>扣费</th><th>结果</th><th>操作</th></tr>
+          </thead>
+          <tbody id="gen-tbody"></tbody>
+        </table>
       </div>
     </div>
-  </div>
+  </main>
 </div>
 
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="toast hidden" style="position:fixed;right:20px;bottom:20px;z-index:200;"></div>
 
 <script>
 function $(id) { return document.getElementById(id); }
@@ -99,7 +140,9 @@ function toast(msg, type = "") {
   const el = $("toast");
   el.textContent = msg;
   el.className = "toast " + type;
-  setTimeout(() => el.classList.add("hidden"), 3500);
+  el.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add("hidden"), 3500);
 }
 function fmtMoney(cents) { return "¥" + (cents / 100).toFixed(2); }
 function fmtTime(iso) { if (!iso) return ""; return new Date(iso).toLocaleString("zh-CN", { hour12: false }); }
@@ -118,36 +161,22 @@ async function api(path, opts = {}) {
   }
   return res.json();
 }
-
-function showLogin() {
-  $("login").classList.remove("hidden");
-  $("app").classList.add("hidden");
-}
-function showApp() {
-  $("login").classList.add("hidden");
-  $("app").classList.remove("hidden");
-  refreshAll();
-}
+function showLogin() { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); }
+function showApp() { $("login").classList.add("hidden"); $("app").classList.remove("hidden"); refreshAll(); }
 
 async function login() {
   const pw = $("pw").value;
   if (!pw) { toast("请输入密码", "error"); return; }
   try {
     await api("/api/admin/login", { method: "POST", body: JSON.stringify({ password: pw }) });
-    $("pw").value = "";
-    showApp();
+    $("pw").value = ""; showApp();
   } catch (e) { toast("登录失败：" + e.message, "error"); }
 }
-
-async function logout() {
-  await api("/api/admin/logout", { method: "POST" });
-  showLogin();
-}
+async function logout() { await api("/api/admin/logout", { method: "POST" }); showLogin(); }
 
 async function refreshAll() {
   await Promise.all([refreshStats(), refreshUsers(), refreshGenerations()]);
 }
-
 async function refreshStats() {
   const s = await api("/api/admin/stats");
   $("s-users").textContent = s.users_total;
@@ -155,43 +184,36 @@ async function refreshStats() {
   $("s-cost").textContent = fmtMoney(s.total_cost_cents);
   $("s-failed").textContent = s.failed_calls;
 }
-
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
 async function refreshUsers() {
   const data = await api("/api/admin/users");
-  const tbody = $("users-tbody");
-  tbody.innerHTML = "";
-  const sel = $("filter-user");
-  sel.innerHTML = '<option value="">全部用户</option>';
+  const tbody = $("users-tbody"); tbody.innerHTML = "";
+  const sel = $("filter-user"); sel.innerHTML = '<option value="">全部用户</option>';
   for (const u of data.items) {
     sel.appendChild(new Option(u.name + " (#" + u.id + ")", u.id));
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${u.id}</td>
-      <td><span class="name-cell">${escapeHtml(u.name)}</span></td>
-      <td><div class="key-cell">
-        <span class="mono key-text" data-key="${escapeHtml(u.access_key)}">••••••••</span>
-        <button class="btn small secondary toggle-key">显示</button>
-        <button class="btn small secondary copy-key">复制</button>
+      <td class="mono">${u.id}</td>
+      <td>${escapeHtml(u.name)}</td>
+      <td><div style="display:flex;gap:6px;align-items:center;">
+        <span class="mono key-text" data-key="${escapeHtml(u.access_key)}" style="font-size:11.5px;">••••••••</span>
+        <button class="btn small ghost toggle-key">显示</button>
+        <button class="btn small ghost copy-key">复制</button>
       </div></td>
       <td>${fmtMoney(u.balance_cents)}</td>
-      <td>${u.gen_count}</td>
+      <td class="mono">${u.gen_count}</td>
       <td class="muted">${fmtTime(u.created_at)}</td>
       <td>
-        <button class="btn small topup">充值</button>
-        <button class="btn small secondary rename">改名</button>
+        <button class="btn small primary topup">充值</button>
+        <button class="btn small ghost rename">改名</button>
         <button class="btn small danger del">删除</button>
       </td>`;
     const keyText = tr.querySelector(".key-text");
     tr.querySelector(".toggle-key").onclick = () => {
-      if (keyText.textContent.startsWith("•")) {
-        keyText.textContent = keyText.dataset.key;
-      } else {
-        keyText.textContent = "••••••••";
-      }
+      keyText.textContent = keyText.textContent.startsWith("•") ? keyText.dataset.key : "••••••••";
     };
     tr.querySelector(".copy-key").onclick = async () => {
       await navigator.clipboard.writeText(keyText.dataset.key);
@@ -204,8 +226,7 @@ async function refreshUsers() {
       if (!isFinite(yuan) || yuan <= 0) { toast("金额无效", "error"); return; }
       try {
         await api(`/api/admin/users/${u.id}/topup`, { method: "POST", body: JSON.stringify({ yuan }) });
-        toast("充值成功", "success");
-        refreshUsers();
+        toast("充值成功", "success"); refreshUsers();
       } catch (e) { toast(e.message, "error"); }
     };
     tr.querySelector(".rename").onclick = async () => {
@@ -220,8 +241,7 @@ async function refreshUsers() {
       if (!confirm(`删除用户 ${u.name}？历史记录会保留但用户身份会清空。`)) return;
       try {
         await api(`/api/admin/users/${u.id}`, { method: "DELETE" });
-        refreshUsers();
-        refreshGenerations();
+        refreshUsers(); refreshGenerations();
       } catch (e) { toast(e.message, "error"); }
     };
     tbody.appendChild(tr);
@@ -235,8 +255,7 @@ async function addUser() {
     const u = await api("/api/admin/users", { method: "POST", body: JSON.stringify({ name }) });
     $("new-name").value = "";
     toast("已创建。Key: " + u.access_key, "success");
-    refreshUsers();
-    refreshStats();
+    refreshUsers(); refreshStats();
   } catch (e) { toast(e.message, "error"); }
 }
 
@@ -248,34 +267,31 @@ async function refreshGenerations() {
   if (userId) qs.set("user_id", userId);
   if (status) qs.set("status", status);
   const data = await api("/api/admin/generations" + (qs.toString() ? "?" + qs : ""));
-  const tbody = $("gen-tbody");
-  tbody.innerHTML = "";
+  const tbody = $("gen-tbody"); tbody.innerHTML = "";
   const filtered = kind ? data.items.filter((g) => (g.kind || "image") === kind) : data.items;
   if (!filtered.length) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = '<td colspan="11" class="empty">没有调用记录</td>';
-    tbody.appendChild(tr);
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--c-text-mute);padding:32px;">没有调用记录</td></tr>';
     return;
   }
   for (const g of filtered) {
     const tr = document.createElement("tr");
-    const statusTag = g.status === "success"
-      ? '<span class="tag success">成功</span>'
+    const statusBadge = g.status === "success"
+      ? '<span style="padding:2px 8px;border-radius:4px;background:var(--c-success-soft);color:var(--c-success);font-size:11px;font-weight:500;">成功</span>'
       : g.status === "failed"
-      ? `<span class="tag failed" title="${escapeHtml(g.error || "")}">失败</span>`
-      : `<span class="tag">${escapeHtml(g.status)}</span>`;
-    const kindTag = g.kind === "icon"
-      ? '<span class="tag icon">SVG</span>'
-      : '<span class="tag image">IMG</span>';
+      ? `<span title="${escapeHtml(g.error || "")}" style="padding:2px 8px;border-radius:4px;background:var(--c-danger-soft);color:var(--c-danger);font-size:11px;font-weight:500;">失败</span>`
+      : `<span style="padding:2px 8px;border-radius:4px;background:var(--c-warning-soft);color:var(--c-warning);font-size:11px;font-weight:500;">${escapeHtml(g.status)}</span>`;
+    const kindBadge = g.kind === "icon"
+      ? '<span style="padding:2px 8px;border-radius:4px;background:rgba(140,59,255,.10);color:#8C3BFF;font-size:11px;font-weight:500;">SVG</span>'
+      : '<span style="padding:2px 8px;border-radius:4px;background:rgba(255,92,44,.10);color:var(--c-accent);font-size:11px;font-weight:500;">IMG</span>';
     tr.innerHTML = `
-      <td>${g.id}</td>
+      <td class="mono">${g.id}</td>
       <td class="muted">${fmtTime(g.created_at)}</td>
       <td>${escapeHtml(g.user_name || "(已删)")}</td>
-      <td>${kindTag}</td>
+      <td>${kindBadge}</td>
       <td title="${escapeHtml(g.prompt)}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(g.prompt)}</td>
       <td class="mono">${escapeHtml(g.size)}</td>
       <td>${g.has_ref ? (g.ref_url ? `<a href="${g.ref_url}" target="_blank">看</a>` : "有") : ""}</td>
-      <td>${statusTag}</td>
+      <td>${statusBadge}</td>
       <td>${fmtMoney(g.cost_cents)}</td>
       <td>${g.result_url ? `<a href="${g.result_url}" target="_blank">查看</a>` : ""}</td>
       <td><button class="btn small danger del-gen">删除</button></td>`;
@@ -300,7 +316,6 @@ $("filter-status").onchange = refreshGenerations;
 $("filter-user").onchange = refreshGenerations;
 $("filter-kind").onchange = refreshGenerations;
 
-// 自动检查登录态
 api("/api/admin/me").then(showApp).catch(() => showLogin());
 </script>
 </body>
