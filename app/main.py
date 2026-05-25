@@ -91,5 +91,20 @@ async def admin_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "admin.html")
 
 
-# 静态资源（CSS、图标等）
+# 静态资源（CSS、图标等）：禁缓存避免 CDN 边缘存旧版
+from starlette.middleware.base import BaseHTTPMiddleware
+
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/static/") or path in ("/", "/admin"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+
+app.add_middleware(NoCacheStaticMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
