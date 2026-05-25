@@ -23,8 +23,8 @@
     <div class="brand">image2</div>
     <div class="meta">
       <span>余额 <b id="balance">¥0.00</b></span>
-      <span class="muted">单次 ¥<span id="price">0.05</span></span>
-      <span class="muted">|</span>
+      <span class="dim">· 单次 ¥<span id="price">0.05</span></span>
+      <span class="sep">|</span>
       <span id="user-name" class="muted"></span>
       <a href="#" id="logout">退出</a>
     </div>
@@ -32,7 +32,7 @@
 
   <div class="container">
     <div class="card">
-      <div class="tabs" style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid #232733;">
+      <div class="tabs">
         <button class="tab-btn active" data-tab="image">生图</button>
         <button class="tab-btn" data-tab="icon">图标矢量</button>
       </div>
@@ -215,7 +215,8 @@ async function refreshHistory() {
     $("history-empty").classList.toggle("hidden", data.items.length > 0);
     for (const it of data.items) {
       const div = document.createElement("div");
-      div.className = "history-item" + (it.status === "failed" ? " failed" : "");
+      div.className = "history-item" + (it.status === "failed" ? " failed" : "") +
+                      (it.kind === "icon" ? " icon" : "");
       const img = document.createElement("img");
       if (it.result_url) {
         img.src = it.result_url + "?access_key=" + encodeURIComponent(accessKey);
@@ -226,8 +227,11 @@ async function refreshHistory() {
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.title = it.prompt + (it.error ? " · " + it.error : "");
-      const tag = it.kind === "icon" ? "◆ " : "";
-      meta.textContent = (it.status === "failed" ? "✗ " : tag) + it.prompt;
+      meta.textContent = (it.status === "failed" ? "✗ " : "") + it.prompt;
+
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = it.kind === "icon" ? "SVG" : "IMG";
 
       const delBtn = document.createElement("button");
       delBtn.className = "del-btn";
@@ -244,6 +248,7 @@ async function refreshHistory() {
       };
 
       div.appendChild(img);
+      div.appendChild(badge);
       div.appendChild(meta);
       div.appendChild(delBtn);
       box.appendChild(div);

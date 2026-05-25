@@ -118,11 +118,14 @@ async def admin_generations(
     status: str | None = Query(default=None),
 ) -> dict[str, Any]:
     rows = await db.admin_list_generations(user_id=user_id, status=status)
-    items = [
-        {
+    items = []
+    for r in rows:
+        kind = r.get("kind") or "image"
+        item = {
             "id": r["id"],
             "user_id": r["user_id"],
             "user_name": r["user_name"],
+            "kind": kind,
             "prompt": r["prompt"],
             "size": r["size"],
             "has_ref": r["has_ref"],
@@ -130,21 +133,29 @@ async def admin_generations(
             "error": r["error"],
             "cost_cents": r["cost_cents"],
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-            "result_url": f"/api/admin/files/result/{r['id']}" if r["result_key"] else None,
-            "ref_url": f"/api/admin/files/ref/{r['id']}" if r["ref_key"] else None,
         }
-        for r in rows
-    ]
+        if kind == "icon":
+            item["result_url"] = f"/api/admin/files/svg/{r['id']}" if r.get("result_svg") else None
+            item["ref_url"] = None
+        else:
+            item["result_url"] = f"/api/admin/files/result/{r['id']}" if r["result_key"] else None
+            item["ref_url"] = f"/api/admin/files/ref/{r['id']}" if r["ref_key"] else None
+        items.append(item)
     return {"items": items}
 
 
 @router.get("/api/admin/files/{kind}/{generation_id}", dependencies=[Depends(require_admin)])
 async def admin_get_file(kind: str, generation_id: int):
-    if kind not in ("ref", "result"):
+    if kind not in ("ref", "result", "svg"):
         raise HTTPException(404)
     gen = await db.get_generation(generation_id)
     if not gen:
         raise HTTPException(404)
+    if kind == "svg":
+        svg = gen.get("result_svg")
+        if not svg:
+            raise HTTPException(404)
+        return StreamingResponse(io.BytesIO(svg.encode("utf-8")), media_type="image/svg+xml")
     key = gen["ref_key"] if kind == "ref" else gen["result_key"]
     if not key:
         raise HTTPException(404)

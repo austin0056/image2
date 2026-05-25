@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import logging
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -13,6 +14,7 @@ from . import db, storage, upstream, upstream_claude
 from .config import settings
 from .deps import require_user
 
+log = logging.getLogger("image2.user")
 router = APIRouter()
 
 ALLOWED_QUALITY = {"auto", "low", "medium", "high"}
@@ -132,11 +134,13 @@ async def api_generate(
             "balance_cents": balance_after,
         }
     except upstream.UpstreamError as e:
+        log.warning("generate 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
         new_balance = await db.mark_failed_and_refund(
             gen_id, user["id"], settings.price_cents, str(e)
         )
         raise HTTPException(502, f"生成失败: {e}. 已退款。当前余额 {new_balance} 分")
     except Exception as e:
+        log.exception("generate 内部异常 user=%s gen=%s", user["id"], gen_id)
         new_balance = await db.mark_failed_and_refund(
             gen_id, user["id"], settings.price_cents, str(e)
         )
@@ -239,11 +243,13 @@ async def api_generate_icon(
             "balance_cents": balance_after,
         }
     except upstream_claude.ClaudeError as e:
+        log.warning("generate-icon 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
         new_balance = await db.mark_failed_and_refund(
             gen_id, user["id"], settings.price_cents, str(e)
         )
         raise HTTPException(502, f"生成失败：{e}. 已退款。当前余额 {new_balance} 分")
     except Exception as e:
+        log.exception("generate-icon 内部异常 user=%s gen=%s", user["id"], gen_id)
         new_balance = await db.mark_failed_and_refund(
             gen_id, user["id"], settings.price_cents, str(e)
         )

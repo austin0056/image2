@@ -66,6 +66,19 @@ async def healthz() -> dict[str, str]:
     return {"ok": "1"}
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    # 返回一个简洁的透明 SVG 当 favicon
+    svg = (
+        b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+        b'<rect width="32" height="32" rx="6" fill="#6aa6ff"/>'
+        b'<text x="50%" y="58%" text-anchor="middle" font-family="system-ui" font-size="18" font-weight="700" fill="#0b1020">i2</text>'
+        b'</svg>'
+    )
+    from fastapi.responses import Response as FResp
+    return FResp(content=svg, media_type="image/svg+xml")
+
+
 @app.get("/")
 async def root() -> FileResponse:
     return FileResponse(STATIC_DIR / "user.html")

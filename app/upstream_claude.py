@@ -2,11 +2,14 @@
 专注用例：生成单个 SVG 图标。"""
 from __future__ import annotations
 
+import logging
 import os
 import re
 from xml.etree import ElementTree as ET
 
 import httpx
+
+log = logging.getLogger("image2.claude")
 
 CLAUDE_BASE = os.getenv("CLAUDE_BASE", "https://claude.moon9.cloud").rstrip("/")
 CLAUDE_KEY = os.getenv("CLAUDE_KEY", "")
@@ -60,6 +63,9 @@ def _extract_svg(text: str) -> str:
     # 阻挡 script
     if re.search(r"<script\b", svg, flags=re.IGNORECASE):
         raise ClaudeError("SVG 含 <script>，已拒绝")
+    # 补 xmlns，保证浏览器/Image 都能渲染
+    if "xmlns" not in svg[:200]:
+        svg = svg.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1)
     return svg
 
 
@@ -82,11 +88,27 @@ async def generate_icon_svg(prompt: str, style: str = "auto", color: str = "") -
         "content-type": "application/json",
     }
 
+    log.info("claude POST %s model=%s", url, CLAUDE_MODEL)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(url, json=body, headers=headers)
+        try:
+            resp = await client.post(url, json=body, headers=headers)
+        except httpx.HTTPError as e:
+            log.error("claude 连接失败: %s", e)
+            raise ClaudeError(f"连接失败: {e}")
         if resp.status_code >= 400:
-            raise ClaudeError(f"messages {resp.status_code}: {resp.text[:500]}")
-        data = resp.json()
+            log.error("claude %s: %s", resp.status_code, resp.text[:1000])
+            # 提炼中文友好错误
+            try:
+                j = resp.json()
+                msg = j.get("error", {}).get("message") or j.get("message") or resp.text[:300]
+            except Exception:
+                msg = resp.text[:300]
+            raise ClaudeError(f"messages {resp.status_code}: {msg}")
+        try:
+            data = resp.json()
+        except Exception:
+            log.error("claude 返回非 JSON: %s", resp.text[:500])
+            raise ClaudeError("上游返回非 JSON")
 
     # Anthropic 原生格式：{"content": [{"type":"text","text":"..."}]}
     content = data.get("content")
@@ -100,5 +122,8 @@ async def generate_icon_svg(prompt: str, style: str = "auto", color: str = "") -
         choices = data.get("choices")
         if isinstance(choices, list) and choices:
             text = choices[0].get("message", {}).get("content", "")
+    if not text:
+        log.error("claude 返回不含文本: %s", str(data)[:500])
+        raise ClaudeError("上游返回不含文本内容")
 
     return _extract_svg(text)
