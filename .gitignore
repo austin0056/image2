@@ -8,3 +8,9 @@ data/
 *.db
 .idea/
 .vscode/
+
+# 临时测试输出
+or.json
+rec.json
+t_*.json
+recraft*.json
