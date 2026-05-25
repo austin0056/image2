@@ -65,6 +65,7 @@ class Settings:
     upstream_key: str
     upstream_model: str
     price_cents: int
+    price_recraft_cents: int
 
     # 鉴权
     admin_password: str
@@ -91,6 +92,7 @@ def load_settings() -> Settings:
         upstream_key=_env("UPSTREAM_KEY", required=True),
         upstream_model=_env("UPSTREAM_MODEL", "gpt-image-2"),
         price_cents=int(_env("PRICE_CENTS", "5")),
+        price_recraft_cents=int(_env("PRICE_RECRAFT_CENTS", "300")),
         admin_password=_env("ADMIN_PASSWORD", required=True),
         session_secret=session_secret,
         database_url=_resolve_database_url(),

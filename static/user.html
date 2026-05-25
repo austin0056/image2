@@ -101,10 +101,54 @@
 
       <div class="tab-pane hidden" id="pane-icon">
         <h2 style="margin-top:0;">生成矢量图标 (SVG)</h2>
+
+        <div style="display:flex;gap:8px;margin-bottom:14px;" class="engine-picker">
+          <button class="engine-btn active" data-engine="claude" type="button">
+            <div class="engine-title">快速模式</div>
+            <div class="engine-desc">Claude few-shot · ¥0.05/张</div>
+          </button>
+          <button class="engine-btn" data-engine="recraft" type="button">
+            <div class="engine-title">🎨 高级·Recraft</div>
+            <div class="engine-desc">业界顶级矢量模型 · ¥3/张</div>
+          </button>
+        </div>
+
         <label>描述</label>
         <textarea id="icon-prompt" placeholder="例：云上传、3D 立方体、锁定、环境设置…"></textarea>
 
-        <div class="row" style="margin-top:12px;">
+        <div id="recraft-options" class="hidden" style="margin-top:12px;">
+          <label>Recraft 风格</label>
+          <select id="recraft-style">
+            <optgroup label="图标类">
+              <option value="icon/outline" selected>线性（推荐）</option>
+              <option value="icon/colored_outline">彩色描边</option>
+              <option value="icon/outline_gradient">渐变线性</option>
+              <option value="icon/colored_shapes">彩色块面</option>
+              <option value="icon/colored_shapes_gradient">渐变块面</option>
+              <option value="icon/offset_fill">偏移填充</option>
+              <option value="icon/uneven_fill">不规则填充</option>
+              <option value="icon/broken_line">虚线</option>
+              <option value="icon/doodle_fill">涂鸦填充</option>
+              <option value="icon/doodle_offset_fill">涂鸦偏移</option>
+              <option value="icon">图标·默认</option>
+            </optgroup>
+            <optgroup label="插画类·可作插图">
+              <option value="vector_illustration">矢量插画</option>
+              <option value="vector_illustration/flat_2">扁平 2.0</option>
+              <option value="vector_illustration/cartoon">卡通</option>
+              <option value="vector_illustration/line_art">线条艺术</option>
+              <option value="vector_illustration/engraving">雕刻</option>
+              <option value="vector_illustration/linocut">木版画</option>
+              <option value="vector_illustration/seamless">无缝拼贴</option>
+              <option value="vector_illustration/line_circuit">电路风格</option>
+            </optgroup>
+          </select>
+          <div class="dim" style="font-size:11.5px;margin-top:4px;">
+            Recraft 风格词汇以英文描述会更准。不需要选择图标库、笔画粗细。
+          </div>
+        </div>
+
+        <div class="row" id="claude-options" style="margin-top:12px;">
           <div>
             <label>图标库风格</label>
             <select id="icon-library">
@@ -259,6 +303,9 @@ async function showApp(me) {
   $("user-name").textContent = me.name;
   $("balance").textContent = fmtMoney(me.balance_cents);
   $("price").textContent = (me.price_cents / 100).toFixed(2);
+  priceClaudeCents = me.price_cents || 5;
+  priceRecraftCents = me.price_recraft_cents || 300;
+  updateIconPriceLabel();
   await refreshHistory();
 }
 
@@ -458,20 +505,29 @@ async function generateIcon() {
   fd.append("access_key", accessKey);
   fd.append("prompt", prompt);
   fd.append("library", $("icon-library").value);
+  // 引擎
+  fd.append("engine", currentEngine);
+  if (currentEngine === "recraft") {
+    fd.append("recraft_style", $("recraft-style").value);
+  }
   // 双色
   const cp = $("icon-color-text").value.trim();
   const cs = $("icon-color2-text").value.trim();
   if (cp) fd.append("color_primary", cp);
   if (cs) fd.append("color_secondary", cs);
-  // 线性库才传 stroke_width
-  const lib = $("icon-library").value;
-  if (NEEDS_STROKE.has(lib)) {
-    fd.append("stroke_width", $("icon-stroke").value);
+  // 线性库才传 stroke_width（Recraft 不需要）
+  if (currentEngine === "claude") {
+    const lib = $("icon-library").value;
+    if (NEEDS_STROKE.has(lib)) {
+      fd.append("stroke_width", $("icon-stroke").value);
+    }
   }
 
   const btn = $("icon-generate-btn");
   btn.disabled = true;
-  $("icon-status").innerHTML = '<span class="spinner"></span> 思考中（设计师推理 · 约 15-30 秒）...';
+  $("icon-status").innerHTML = currentEngine === "recraft"
+    ? '<span class="spinner"></span> Recraft 顶级模型渲染中（约 8-20 秒）...'
+    : '<span class="spinner"></span> Claude 推理中（约 15-30 秒）...';
   try {
     const data = await api("/api/generate-icon", { method: "POST", body: fd });
     $("balance").textContent = fmtMoney(data.balance_cents);
@@ -634,9 +690,30 @@ $("palette-shuffle").onclick = () => {
   const s = hslToHex(h + (Math.random() < 0.5 ? 150 : 30), 0.6, 0.55);
   setBothColors(p, s);
 };
+// 引擎切换
+let currentEngine = "claude";
+let priceClaudeCents = 5;
+let priceRecraftCents = 300;
+
+function updateIconPriceLabel() {
+  const c = currentEngine === "recraft" ? priceRecraftCents : priceClaudeCents;
+  const yuan = (c / 100).toFixed(2);
+  $("icon-generate-btn").textContent = `生成图标（扣 ¥${yuan}）`;
+}
+
+document.querySelectorAll(".engine-btn").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".engine-btn").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    currentEngine = b.dataset.engine;
+    $("recraft-options").classList.toggle("hidden", currentEngine !== "recraft");
+    $("claude-options").classList.toggle("hidden", currentEngine !== "claude");
+    updateIconPriceLabel();
+  };
+});
+// 库切换时更新提示 + 笔画可见性
 // 笔画调节
 $("icon-stroke").addEventListener("input", (e) => { $("stroke-val").textContent = parseFloat(e.target.value).toFixed(1); });
-// 库切换时更新提示 + 笔画可见性
 $("icon-library").addEventListener("change", () => {
   const lib = $("icon-library").value;
   $("library-hint").textContent = LIBRARY_HINTS[lib] || "";

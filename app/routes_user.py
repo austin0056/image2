@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
-from . import db, storage, upstream, upstream_claude
+from . import db, storage, upstream, upstream_claude, upstream_recraft
 from .config import settings
 from .deps import require_user
 
@@ -57,6 +57,7 @@ async def api_me(body: KeyBody) -> dict[str, Any]:
         "name": user["name"],
         "balance_cents": user["balance_cents"],
         "price_cents": settings.price_cents,
+        "price_recraft_cents": settings.price_recraft_cents,
     }
 
 
@@ -208,6 +209,8 @@ ALLOWED_ICON_LIBRARIES = {
     "auto", "lucide", "heroicons-outline", "heroicons-solid",
     "phosphor", "tabler", "feather", "material", "duotone",
 }
+ALLOWED_ENGINES = {"claude", "recraft"}
+RECRAFT_STYLES = set(upstream_recraft.RECRAFT_STYLES.keys())
 
 
 @router.post("/api/generate-icon")
@@ -219,25 +222,36 @@ async def api_generate_icon(
     color_primary: str = Form(""),
     color_secondary: str = Form(""),
     stroke_width: float | None = Form(default=None),
+    engine: str = Form("claude"),
+    recraft_style: str = Form(upstream_recraft.DEFAULT_STYLE),
 ) -> dict[str, Any]:
     user = await require_user(access_key)
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(400, "prompt 不能为空")
-    if library not in ALLOWED_ICON_LIBRARIES:
+    if engine not in ALLOWED_ENGINES:
+        raise HTTPException(400, f"engine 必须是 {sorted(ALLOWED_ENGINES)} 之一")
+    if engine == "claude" and library not in ALLOWED_ICON_LIBRARIES:
         raise HTTPException(400, f"library 必须是 {sorted(ALLOWED_ICON_LIBRARIES)} 之一")
-    # 新旧字段兼容：新发 color_primary > 旧发 color
+    if engine == "recraft" and recraft_style not in RECRAFT_STYLES:
+        raise HTTPException(400, f"recraft_style 不合法")
     primary = (color_primary or color or "").strip()[:32]
     secondary = (color_secondary or "").strip()[:32]
     if stroke_width is not None and not (0.5 <= stroke_width <= 8.0):
         raise HTTPException(400, "stroke_width 范围 0.5–8")
 
-    style_label = library
+    # 价格与标签按引擎区分
+    if engine == "recraft":
+        cost = settings.price_recraft_cents
+        style_label = f"recraft {recraft_style}"
+    else:
+        cost = settings.price_cents
+        style_label = library
     if primary:
         style_label += f" P{primary}"
     if secondary:
         style_label += f" S{secondary}"
-    if stroke_width:
+    if stroke_width and engine == "claude":
         style_label += f" sw{stroke_width}"
 
     gen_id, balance_after = await db.try_charge_and_create(
@@ -246,20 +260,32 @@ async def api_generate_icon(
         size=style_label[:64],
         has_ref=False,
         ref_key=None,
-        cost_cents=settings.price_cents,
+        cost_cents=cost,
         kind="icon",
     )
     if gen_id is None:
         raise HTTPException(402, "余额不足")
 
     try:
-        svg, warnings, samples = await upstream_claude.generate_icon_svg(
-            prompt,
-            library=library,
-            color_primary=primary,
-            color_secondary=secondary,
-            stroke_width=stroke_width,
-        )
+        if engine == "recraft":
+            svg, meta = await upstream_recraft.generate_vector(
+                prompt,
+                style=recraft_style,
+                color_primary=primary,
+                color_secondary=secondary,
+            )
+            warnings: list[str] = []
+            samples: list[str] = []
+            engine_meta = meta
+        else:
+            svg, warnings, samples = await upstream_claude.generate_icon_svg(
+                prompt,
+                library=library,
+                color_primary=primary,
+                color_secondary=secondary,
+                stroke_width=stroke_width,
+            )
+            engine_meta = {}
         await db.mark_success_svg(gen_id, svg)
         return {
             "generation_id": gen_id,
@@ -267,17 +293,22 @@ async def api_generate_icon(
             "balance_cents": balance_after,
             "warnings": warnings,
             "samples": samples,
+            "engine": engine,
+            "engine_meta": engine_meta,
         }
-    except upstream_claude.ClaudeError as e:
-        log.warning("generate-icon 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
+    except (upstream_claude.ClaudeError, upstream_recraft.RecraftError) as e:
+        log.warning(
+            "generate-icon 上游失败 user=%s gen=%s engine=%s: %s",
+            user["id"], gen_id, engine, e,
+        )
         new_balance = await db.mark_failed_and_refund(
-            gen_id, user["id"], settings.price_cents, str(e)
+            gen_id, user["id"], cost, str(e),
         )
         raise HTTPException(502, f"生成失败：{e}. 已退款。当前余额 {new_balance} 分")
     except Exception as e:
         log.exception("generate-icon 内部异常 user=%s gen=%s", user["id"], gen_id)
         new_balance = await db.mark_failed_and_refund(
-            gen_id, user["id"], settings.price_cents, str(e)
+            gen_id, user["id"], cost, str(e)
         )
         raise HTTPException(500, f"内部错误：{e}. 已退款。当前余额 {new_balance} 分")
 
