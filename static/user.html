@@ -979,7 +979,15 @@ async function openRecharge() {
   try {
     const data = await api("/api/recharge/presets");
     if (!data.enabled) {
-      toast("充值功能未启用（管理员未配置 zpay）", "error");
+      // 弹原生 confirm，比 toast 更明显
+      alert(
+        "充值功能未启用\n\n" +
+        "管理员需要在 Zeabur Variables 里配置以下环境变量：\n" +
+        "• ZPAY_PID\n" +
+        "• ZPAY_KEY\n" +
+        "• PUBLIC_BASE_URL=https://image2.moon9.cloud\n\n" +
+        "配置后服务会自动重启，别忘了刷新页面。"
+      );
       return;
     }
     renderAmountGrid(data.presets_yuan);
