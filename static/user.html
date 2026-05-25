@@ -9,12 +9,18 @@
 <body>
 
 <div id="login" class="container" style="max-width:420px;margin-top:80px;">
-  <div class="card">
-    <h2>登录</h2>
+  <div class="card" style="padding:32px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+      <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#6aa6ff 0%,#9b6aff 100%);box-shadow:0 6px 20px rgba(106,166,255,0.32);"></div>
+      <div>
+        <div style="font-size:18px;font-weight:700;letter-spacing:.3px;">image2</div>
+        <div class="dim" style="font-size:12px;">AI 生图 · 矢量图标</div>
+      </div>
+    </div>
     <label>Access Key</label>
     <input id="key-input" type="password" placeholder="ak_..." autocomplete="off" />
-    <p class="muted" style="font-size:12px;margin:8px 0 16px;">联系管理员获取 access key。</p>
-    <button class="btn" id="login-btn">进入</button>
+    <p class="muted" style="font-size:12px;margin:10px 0 18px;">联系管理员获取 access key。按 Enter 登录。</p>
+    <button class="btn" id="login-btn" style="width:100%;">进入</button>
   </div>
 </div>
 

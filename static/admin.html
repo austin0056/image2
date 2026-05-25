@@ -9,19 +9,26 @@
 <body>
 
 <div id="login" class="container" style="max-width:420px;margin-top:80px;">
-  <div class="card">
-    <h2>管理员登录</h2>
-    <label>密码</label>
+  <div class="card" style="padding:32px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+      <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#9b6aff 0%,#ef5a5a 100%);box-shadow:0 6px 20px rgba(155,106,255,0.32);"></div>
+      <div>
+        <div style="font-size:18px;font-weight:700;letter-spacing:.3px;">image2 · 管理</div>
+        <div class="dim" style="font-size:12px;">管理员控制台</div>
+      </div>
+    </div>
+    <label>管理员密码</label>
     <input id="pw" type="password" autocomplete="current-password" />
-    <button class="btn" id="login-btn" style="margin-top:16px;">登录</button>
+    <button class="btn" id="login-btn" style="margin-top:18px;width:100%;">登录</button>
   </div>
 </div>
 
 <div id="app" class="hidden">
   <div class="topbar">
-    <div class="brand">image2 · 管理</div>
+    <div class="brand" style="--brand-grad: linear-gradient(135deg,#9b6aff 0%,#ef5a5a 100%);">image2 · 管理</div>
     <div class="meta">
-      <a href="/" target="_blank">用户面板</a>
+      <a href="/" target="_blank">↗ 用户面板</a>
+      <span class="sep">|</span>
       <a href="#" id="logout">退出</a>
     </div>
   </div>
