@@ -204,28 +204,41 @@ async def api_delete_generation(generation_id: int, access_key: str = Query(...)
 
 # ---------- 图标生成 ----------
 
-ALLOWED_ICON_STYLES = {"auto", "line", "flat", "duotone", "glyph", "outline", "filled"}
+ALLOWED_ICON_LIBRARIES = {
+    "auto", "lucide", "heroicons-outline", "heroicons-solid",
+    "phosphor", "tabler", "feather", "material", "duotone",
+}
 
 
 @router.post("/api/generate-icon")
 async def api_generate_icon(
     access_key: str = Form(...),
     prompt: str = Form(...),
-    style: str = Form("auto"),
+    library: str = Form("lucide"),
     color: str = Form(""),
+    stroke_width: float | None = Form(default=None),
 ) -> dict[str, Any]:
     user = await require_user(access_key)
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(400, "prompt 不能为空")
-    if style not in ALLOWED_ICON_STYLES:
-        raise HTTPException(400, f"style 必须是 {sorted(ALLOWED_ICON_STYLES)} 之一")
+    if library not in ALLOWED_ICON_LIBRARIES:
+        raise HTTPException(400, f"library 必须是 {sorted(ALLOWED_ICON_LIBRARIES)} 之一")
     color = (color or "").strip()[:32]
+    if stroke_width is not None and not (0.5 <= stroke_width <= 8.0):
+        raise HTTPException(400, "stroke_width 范围 0.5–8")
+
+    # 存下风格描述方便后续查
+    style_label = library
+    if color:
+        style_label += f" {color}"
+    if stroke_width:
+        style_label += f" sw{stroke_width}"
 
     gen_id, balance_after = await db.try_charge_and_create(
         user_id=user["id"],
         prompt=prompt,
-        size=style,           # 复用 size 存风格
+        size=style_label[:64],
         has_ref=False,
         ref_key=None,
         cost_cents=settings.price_cents,
@@ -235,7 +248,12 @@ async def api_generate_icon(
         raise HTTPException(402, "余额不足")
 
     try:
-        svg = await upstream_claude.generate_icon_svg(prompt, style=style, color=color)
+        svg = await upstream_claude.generate_icon_svg(
+            prompt,
+            library=library,
+            color=color,
+            stroke_width=stroke_width,
+        )
         await db.mark_success_svg(gen_id, svg)
         return {
             "generation_id": gen_id,

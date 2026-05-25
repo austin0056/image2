@@ -96,24 +96,51 @@
       <div class="tab-pane hidden" id="pane-icon">
         <h2 style="margin-top:0;">生成矢量图标 (SVG)</h2>
         <label>描述</label>
-        <textarea id="icon-prompt" placeholder="例：一个简洁的云端同步图标，线性风格"></textarea>
+        <textarea id="icon-prompt" placeholder="例：云上传、3D 立方体、锁定、环境设置…"></textarea>
+
         <div class="row" style="margin-top:12px;">
           <div>
-            <label>风格</label>
-            <select id="icon-style">
-              <option value="line">线性 line</option>
-              <option value="flat">扁平 flat</option>
-              <option value="duotone">双色 duotone</option>
-              <option value="glyph">填充 glyph</option>
-              <option value="auto">Auto</option>
+            <label>图标库风格</label>
+            <select id="icon-library">
+              <option value="lucide">Lucide 线性 24×24</option>
+              <option value="heroicons-outline">Heroicons Outline</option>
+              <option value="heroicons-solid">Heroicons Solid 填充</option>
+              <option value="phosphor">Phosphor 256×256</option>
+              <option value="tabler">Tabler</option>
+              <option value="feather">Feather 极简</option>
+              <option value="material">Material 实心</option>
+              <option value="duotone">Duotone 双色</option>
+              <option value="auto">Auto / 交给 AI</option>
             </select>
+            <div class="dim" style="font-size:11.5px;margin-top:4px;" id="library-hint">Lucide 风格：24×2px 线性，圆角结尾，几何对称。</div>
           </div>
           <div>
-            <label>主色（可选）</label>
-            <input id="icon-color" type="text" placeholder="例 #5B8DEF 或 currentColor" />
+            <label>主色</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input id="icon-color" type="color" value="#6aa6ff" style="width:42px;height:38px;padding:2px;cursor:pointer;" />
+              <input id="icon-color-text" type="text" value="#6aa6ff" style="flex:1;" />
+              <button class="btn small ghost" id="icon-color-clear" type="button" title="清空使用 currentColor">×</button>
+            </div>
+            <div id="color-swatches" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div>
           </div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+
+        <div class="row" style="margin-top:12px;">
+          <div id="stroke-row">
+            <label>笔画粗细 <span class="dim" id="stroke-val">2.0</span></label>
+            <input id="icon-stroke" type="range" min="0.5" max="4" step="0.5" value="2" style="width:100%;accent-color:var(--accent);" />
+          </div>
+          <div>
+            <label>预览背景</label>
+            <div style="display:flex;gap:6px;">
+              <button class="btn small secondary preview-bg active" data-bg="light" type="button">白底</button>
+              <button class="btn small secondary preview-bg" data-bg="dark" type="button">黑底</button>
+              <button class="btn small secondary preview-bg" data-bg="checker" type="button">透明</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:18px;align-items:center;">
           <button class="btn" id="icon-generate-btn">生成图标（扣 ¥0.05）</button>
           <span id="icon-status" class="muted"></span>
         </div>
@@ -313,11 +340,14 @@ function showSvgResult(svgText, downloadName) {
   lastSvgText = svgText;
   const blob = new Blob([svgText], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
-  $("result-wrap").innerHTML = '<img class="result-img" style="background:#fff;padding:24px;" src="' + url + '" />';
+  $("result-wrap").innerHTML = '<img class="result-img" style="padding:24px;" src="' + url + '" />';
   $("download-link").href = url;
   $("download-link").download = downloadName + ".svg";
   $("download-png-from-svg").classList.remove("hidden");
   $("result-card").classList.remove("hidden");
+  // 应用当前选中的预览背景
+  const active = document.querySelector(".preview-bg.active");
+  setPreviewBg(active ? active.dataset.bg : "light");
 }
 
 async function svgToPngDownload(filename) {
@@ -361,8 +391,15 @@ async function generateIcon() {
   const fd = new FormData();
   fd.append("access_key", accessKey);
   fd.append("prompt", prompt);
-  fd.append("style", $("icon-style").value);
-  fd.append("color", $("icon-color").value);
+  fd.append("library", $("icon-library").value);
+  // 取色器与文本同步后以 text 为准
+  const colorVal = $("icon-color-text").value.trim();
+  if (colorVal) fd.append("color", colorVal);
+  // 只在线性/duotone 下传 stroke_width
+  const lib = $("icon-library").value;
+  if (NEEDS_STROKE.has(lib)) {
+    fd.append("stroke_width", $("icon-stroke").value);
+  }
 
   const btn = $("icon-generate-btn");
   btn.disabled = true;
@@ -392,6 +429,72 @@ $("logout").onclick = (e) => { e.preventDefault(); logout(); };
 $("generate-btn").onclick = generate;
 $("icon-generate-btn").onclick = generateIcon;
 $("download-png-from-svg").onclick = () => svgToPngDownload("icon");
+
+// ---------- 图标交互逻辑 ----------
+const NEEDS_STROKE = new Set([
+  "lucide", "heroicons-outline", "phosphor", "tabler", "feather", "duotone", "auto",
+]);
+const LIBRARY_HINTS = {
+  "lucide": "Lucide 风格：24× 线性，stroke=2，圆角结尾。社区最活跃。",
+  "heroicons-outline": "Heroicons Outline：24× 细线（stroke=1.5），Tailwind 出品。",
+  "heroicons-solid": "Heroicons Solid：24× 填充实心，无 stroke，扭孔用 evenodd。",
+  "phosphor": "Phosphor regular：256× 大画布精致线性，友好圆润。",
+  "tabler": "Tabler：24× 线性，允许更复杂结构。",
+  "feather": "Feather：极简主义，负空间多。",
+  "material": "Material Symbols：几何块面填充，对齐 4px 网格。",
+  "duotone": "Duotone：线性骨架 + 20% 透明色块。",
+  "auto": "交给 AI 自由发挥。",
+};
+const PRESET_COLORS = [
+  "#000000", "#ffffff", "#6aa6ff", "#9b6aff",
+  "#3ec97b", "#f4b942", "#ef5a5a", "#22c1c3",
+];
+// 创建预设色板
+const swatches = $("color-swatches");
+if (swatches) {
+  PRESET_COLORS.forEach((c) => {
+    const s = document.createElement("button");
+    s.type = "button";
+    s.style.cssText = `width:22px;height:22px;border-radius:6px;border:1px solid #2e3650;background:${c};cursor:pointer;padding:0;`;
+    s.title = c;
+    s.onclick = () => { $("icon-color").value = c; $("icon-color-text").value = c; };
+    swatches.appendChild(s);
+  });
+}
+// 取色器 <-> 文本 双向同步
+$("icon-color").addEventListener("input", (e) => { $("icon-color-text").value = e.target.value; });
+$("icon-color-text").addEventListener("input", (e) => {
+  const v = e.target.value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) $("icon-color").value = v;
+});
+$("icon-color-clear").onclick = () => { $("icon-color-text").value = ""; };
+// 笔画调节
+$("icon-stroke").addEventListener("input", (e) => { $("stroke-val").textContent = parseFloat(e.target.value).toFixed(1); });
+// 库切换时更新提示 + 笔画可见性
+$("icon-library").addEventListener("change", () => {
+  const lib = $("icon-library").value;
+  $("library-hint").textContent = LIBRARY_HINTS[lib] || "";
+  $("stroke-row").style.visibility = NEEDS_STROKE.has(lib) ? "" : "hidden";
+});
+// 预览背景切换
+document.querySelectorAll(".preview-bg").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".preview-bg").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    setPreviewBg(b.dataset.bg);
+  };
+});
+function setPreviewBg(kind) {
+  const wrap = $("result-wrap");
+  if (!wrap) return;
+  const img = wrap.querySelector("img");
+  if (!img) { wrap.dataset.bg = kind; return; }
+  if (kind === "light") img.style.background = "#fff";
+  else if (kind === "dark") img.style.background = "#0b0d12";
+  else if (kind === "checker")
+    img.style.background = "repeating-conic-gradient(#2a2f3e 0% 25%, #1a1f2e 0% 50%) 50%/16px 16px";
+  wrap.dataset.bg = kind;
+}
 
 // Tab 切换
 document.querySelectorAll(".tab-btn").forEach((b) => {
