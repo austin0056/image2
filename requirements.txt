@@ -7,3 +7,4 @@ asyncpg==0.29.0
 boto3==1.35.36
 itsdangerous==2.2.0
 python-dotenv==1.0.1
+rapidfuzz>=3.0

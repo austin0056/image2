@@ -1,5 +1,6 @@
 """Claude 中转上游封装：Anthropic 原生 /v1/messages 协议。
-专注用例：高质量 SVG 图标，模仿主流图标库，带 CoT 推理与审美约束。"""
+图标生成核心：先检索真实图标库的 top-k 样本作为 few-shot，
+让 LLM 学习设计师精调过的视觉语言再创作，质量远高于纯凭审美 checklist。"""
 from __future__ import annotations
 
 import logging
@@ -8,6 +9,8 @@ import re
 from xml.etree import ElementTree as ET
 
 import httpx
+
+from app import icon_search
 
 log = logging.getLogger("image2.claude")
 
@@ -19,88 +22,80 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "kiro-opus-4.7")
 _TIMEOUT = httpx.Timeout(connect=15.0, read=110.0, write=60.0, pool=15.0)
 _MAX_RETRIES = 2  # 503/504/连接错误的重试次数
 
+# 每次注入多少个样本(太多会让 prompt 过长,3-5 个最合适)
+_FEW_SHOT_K = 5
+
 
 class ClaudeError(RuntimeError):
     pass
 
 
-# ---------- 各图标库的设计语言 ----------
-LIBRARY_GUIDES: dict[str, str] = {
-    "lucide": (
-        'Lucide：viewBox="0 0 24 24"；fill="none" stroke="currentColor" '
-        'stroke-width="2"；linecap/linejoin="round"；2px 边距，几何对称。'
-    ),
-    "heroicons-outline": (
-        'Heroicons Outline：viewBox="0 0 24 24"；fill="none" stroke="currentColor" '
-        'stroke-width="1.5"；linecap/linejoin="round"；1.5px 边距，曲线优雅。'
-    ),
-    "heroicons-solid": (
-        'Heroicons Solid：viewBox="0 0 24 24"；纯填充 fill="currentColor"，无 stroke；'
-        'fill-rule="evenodd" clip-rule="evenodd"。'
-    ),
-    "phosphor": (
-        'Phosphor：viewBox="0 0 256 256"；fill="none" stroke="currentColor" '
-        'stroke-width="16"；linecap/linejoin="round"；圆润，主元素 24-232。'
-    ),
-    "tabler": (
-        'Tabler：viewBox="0 0 24 24"；fill="none" stroke="currentColor" '
-        'stroke-width="2"；linecap/linejoin="round"；像素严格对齐。'
-    ),
-    "feather": (
-        'Feather：viewBox="0 0 24 24"；fill="none" stroke="currentColor" '
-        'stroke-width="2"；极简，更多负空间。'
-    ),
-    "material": (
-        'Material Symbols：viewBox="0 0 24 24"；纯填充 fill="currentColor"；'
-        '4px 网格对齐，无 stroke。'
-    ),
-    "duotone": (
-        'Duotone：viewBox="0 0 24 24"；先画填充层 fill="#SECONDARY" opacity="0.2"，'
-        '再画轮廓层 stroke="#PRIMARY" stroke-width="2" fill="none"。'
-    ),
+# 各图标库的简短风格定位(配合样本一起注入)
+LIBRARY_NOTES: dict[str, str] = {
+    "lucide": "Lucide：viewBox=24，纯线性，stroke-width=2，圆角端点。",
+    "heroicons-outline": "Heroicons Outline：viewBox=24，stroke-width=1.5，曲线优雅。",
+    "heroicons-solid": "Heroicons Solid：viewBox=24，纯填充无 stroke。",
+    "phosphor": "Phosphor：viewBox=256，stroke-width=16，圆润友好。",
+    "tabler": "Tabler：viewBox=24，stroke-width=2，像素严格对齐。",
+    "feather": "Feather：viewBox=24，stroke-width=2，极简风格。",
+    "material": "Material：viewBox=24，纯填充，4px 网格。",
+    "duotone": "Duotone：viewBox=24，填充层 + 轮廓层叠加。",
+    "auto": "由 AI 自由发挥，建议线性 24x24。",
 }
 
 
-def _build_system_prompt(library: str, dual_color: bool) -> str:
-    guide = LIBRARY_GUIDES.get(library, "")
+def _build_system_prompt(library: str, examples: list[dict], dual_color: bool) -> str:
+    note = LIBRARY_NOTES.get(library, "")
     color_section = (
-        "用户给主色 PRIMARY 和辅色 SECONDARY 时：stroke/主轮廓用 PRIMARY，"
-        "fill/强调用 SECONDARY；任一为空则该位置使用 currentColor。"
+        "颜色规则：把 stroke/主轮廓换成 PRIMARY；fill/强调换成 SECONDARY；"
+        "任一为空则该位置使用 currentColor。"
         if dual_color
-        else "用户给主色时替换 currentColor；为空则保持 currentColor。"
+        else "颜色规则：用户给主色时替换 currentColor；为空保持 currentColor。"
     )
-    parts = [
-        "你是一名顶尖的图标设计师，擅长仿照主流开源图标库。",
-        "请先简要思考再输出 SVG。",
+
+    examples_block = ""
+    if examples:
+        parts = ["# 学习样本（请仔细观察以下图标的 viewBox/stroke/几何构造/留白节奏）"]
+        for i, ex in enumerate(examples, 1):
+            parts.append(f"\n## 样本 {i}: {ex['name']}\n{ex['svg']}")
+        parts.append(
+            "\n请观察样本的：\n"
+            "- viewBox 范围和坐标使用习惯\n"
+            "- stroke-width / linecap / linejoin 配置\n"
+            "- 元素数量级（通常 1-5 个 path/circle/rect）\n"
+            "- 留白比例和对称性\n"
+            "**生成时严格匹配上述样本的视觉语言，但不要复制任何样本的内容。要原创。**"
+        )
+        examples_block = "\n".join(parts)
+
+    body = [
+        "你是一名顶尖的图标设计师。请严格学习下面真实图标库的样本风格,然后为新主题创作。",
         "",
-        "# 输出格式（严格）",
-        "[ANALYSIS] 一句话拆解主题。",
-        "[CONCEPT] 一句话说你选什么构图。",
-        "[GEOMETRY] 一句话说元素位置。",
-        "[PALETTE] 一句话说颜色如何分配。",
-        "[SVG]",
-        "<svg ...>...</svg>",
+        f"# 当前库: {library}",
+        note,
         "",
-        "# 硬要求",
-        "- 前 4 段合计不超 80 字。",
-        "- [SVG] 后面是完整 SVG，不要 markdown 围栏。",
-        "- 禁止 <script>/<foreignObject>/远程 xlink:href。",
-        "",
-        "# 库规范",
-        guide or "默认 24x24 线性。",
+        examples_block if examples_block else "(本次未提供样本,请按库默认风格创作)",
         "",
         "# 颜色",
         color_section,
         "",
-        "# 关键原则",
-        "- 同图 stroke-width 一致，端点落整数坐标。",
-        "- 边距 ≥ 8% viewBox，核心形状 ≤ 5。",
-        "- 能用 circle/rect/line 就不用 path；圆角 rx 用 2/4/6。",
-        "- 默认对称；16px 仍需可识别。",
+        "# 输出格式（严格）",
+        "[ANALYSIS] 一句话拆解主题。",
+        "[CONCEPT] 一句话说你借鉴了哪些样本元素以及如何重组。",
+        "[SVG]",
+        "<svg ...>...</svg>",
         "",
-        "思考要短，重点是 SVG 本身质量。",
+        "# 硬要求",
+        "- 前两段思考合计不超 60 字。",
+        "- [SVG] 后是完整 SVG，不要 markdown 围栏。",
+        "- viewBox 必须与样本一致。",
+        "- stroke 属性配置必须与样本一致。",
+        "- 禁止 <script>/<foreignObject>/远程 xlink:href。",
+        "- 元素数量与样本同级（≤ 5 个核心形状）。",
+        "",
+        "重点:学样本的设计语言,不学样本的具体造型。原创但风格一致。",
     ]
-    return "\n".join(parts)
+    return "\n".join(body)
 
 
 def _build_user_prompt(
@@ -109,19 +104,21 @@ def _build_user_prompt(
     color_primary: str,
     color_secondary: str,
     stroke_width: float | None,
+    examples: list[dict],
 ) -> str:
     parts = [f"主题：{prompt.strip()}"]
-    if library and library != "auto":
-        parts.append(f"参考图标库：{library}")
+    if examples:
+        sample_names = ", ".join(e["name"] for e in examples)
+        parts.append(f"参考的样本：{sample_names}")
     if color_primary:
         parts.append(f"主色 PRIMARY = {color_primary}")
     if color_secondary:
         parts.append(f"辅色 SECONDARY = {color_secondary}")
     if not color_primary and not color_secondary:
-        parts.append("未指定颜色，请使用 currentColor。")
+        parts.append("未指定颜色，使用 currentColor。")
     if stroke_width:
         parts.append(f"笔画粗细：{stroke_width}（覆盖默认）")
-    parts.append("严格按 [ANALYSIS]→[CONCEPT]→[GEOMETRY]→[PALETTE]→[SVG] 输出，思考段每段一句话。")
+    parts.append("严格按 [ANALYSIS]→[CONCEPT]→[SVG] 输出，思考段每段一句话。")
     return "\n".join(parts)
 
 
@@ -187,21 +184,34 @@ async def generate_icon_svg(
     color_primary: str = "",
     color_secondary: str = "",
     stroke_width: float | None = None,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], list[str]]:
+    """生成图标 SVG。
+    返回 (svg, quality_warnings, sample_names)
+    """
     if not CLAUDE_KEY:
         raise ClaudeError("CLAUDE_KEY 未配置")
 
+    # 1. 检索 few-shot 样本
+    try:
+        examples = icon_search.search_examples(prompt, library, top_k=_FEW_SHOT_K)
+    except Exception as e:
+        log.warning("icon_search 异常,跳过样本: %s", e)
+        examples = []
+
+    sample_names = [ex["name"] for ex in examples]
+
+    # 2. 构造 prompt
     dual = bool(color_primary or color_secondary) or library == "duotone"
     url = f"{CLAUDE_BASE}/v1/messages"
     body = {
         "model": CLAUDE_MODEL,
         "max_tokens": 3072,
-        "system": _build_system_prompt(library, dual_color=dual),
+        "system": _build_system_prompt(library, examples, dual_color=dual),
         "messages": [
             {
                 "role": "user",
                 "content": _build_user_prompt(
-                    prompt, library, color_primary, color_secondary, stroke_width
+                    prompt, library, color_primary, color_secondary, stroke_width, examples,
                 ),
             },
         ],
@@ -213,8 +223,8 @@ async def generate_icon_svg(
     }
 
     log.info(
-        "claude POST %s model=%s library=%s dual=%s",
-        url, CLAUDE_MODEL, library, dual,
+        "claude POST %s model=%s library=%s dual=%s samples=%s",
+        url, CLAUDE_MODEL, library, dual, sample_names,
     )
 
     last_err = "未知错误"
@@ -230,7 +240,6 @@ async def generate_icon_svg(
                     continue
                 raise ClaudeError(last_err)
 
-            # 上游网关错误：可重试
             if resp.status_code in (502, 503, 504):
                 snippet = resp.text[:300]
                 last_err = f"messages {resp.status_code}: {snippet}"
@@ -277,4 +286,4 @@ async def generate_icon_svg(
     warnings = _audit_svg(svg)
     if warnings:
         log.info("svg quality warnings: %s", warnings)
-    return svg, warnings
+    return svg, warnings, sample_names

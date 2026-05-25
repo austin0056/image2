@@ -478,6 +478,10 @@ async function generateIcon() {
     const r = await fetch(data.result_url + "?access_key=" + encodeURIComponent(accessKey));
     const svg = await r.text();
     showSvgResult(svg, "icon-" + data.generation_id);
+    if (data.samples && data.samples.length) {
+      const info = $("result-info");
+      info.textContent = info.textContent + " · 参考: " + data.samples.join(", ");
+    }
     $("icon-status").textContent = "完成";
     toast("生成成功", "success");
     refreshHistory();

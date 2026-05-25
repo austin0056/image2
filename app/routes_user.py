@@ -253,7 +253,7 @@ async def api_generate_icon(
         raise HTTPException(402, "余额不足")
 
     try:
-        svg, warnings = await upstream_claude.generate_icon_svg(
+        svg, warnings, samples = await upstream_claude.generate_icon_svg(
             prompt,
             library=library,
             color_primary=primary,
@@ -266,6 +266,7 @@ async def api_generate_icon(
             "result_url": f"/icons/{gen_id}.svg",
             "balance_cents": balance_after,
             "warnings": warnings,
+            "samples": samples,
         }
     except upstream_claude.ClaudeError as e:
         log.warning("generate-icon 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
