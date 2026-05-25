@@ -13,7 +13,7 @@ log = logging.getLogger("image2.claude")
 
 CLAUDE_BASE = os.getenv("CLAUDE_BASE", "https://claude.moon9.cloud").rstrip("/")
 CLAUDE_KEY = os.getenv("CLAUDE_KEY", "")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "kiro-claude-4.7")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "kiro-opus-4.7")
 
 _TIMEOUT = httpx.Timeout(connect=15.0, read=120.0, write=60.0, pool=15.0)
 
