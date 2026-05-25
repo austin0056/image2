@@ -14,6 +14,7 @@ from . import db, storage
 from .config import settings
 from .routes_admin import router as admin_router
 from .routes_user import router as user_router
+from .routes_payment import router as payment_router
 
 log = logging.getLogger("image2")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -59,6 +60,7 @@ app = FastAPI(title="image2", lifespan=lifespan)
 
 app.include_router(user_router)
 app.include_router(admin_router)
+app.include_router(payment_router)
 
 
 @app.get("/healthz")

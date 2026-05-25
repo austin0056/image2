@@ -74,6 +74,27 @@ async def _init_schema() -> None:
         await con.execute(
             "ALTER TABLE generations ADD COLUMN IF NOT EXISTS result_svg TEXT"
         )
+        # payments 表
+        await con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payments (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                out_trade_no VARCHAR(40) UNIQUE NOT NULL,
+                trade_no VARCHAR(64),
+                amount_cents INTEGER NOT NULL,
+                pay_type VARCHAR(16) NOT NULL DEFAULT 'alipay',
+                status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                notify_raw TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                paid_at TIMESTAMPTZ
+            );
+            CREATE INDEX IF NOT EXISTS idx_pay_user_created
+                ON payments(user_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_pay_status
+                ON payments(status);
+            """
+        )
 
 
 # ----- 用户 -----
@@ -241,6 +262,108 @@ async def delete_generation(generation_id: int, user_id: int | None = None) -> d
                 generation_id, user_id,
             )
     return _row_to_dict(row)
+
+
+# ----- 支付订单 -----
+
+async def create_payment(
+    user_id: int,
+    out_trade_no: str,
+    amount_cents: int,
+    pay_type: str = "alipay",
+) -> int:
+    """创建 pending 订单。返回 payments.id。"""
+    async with pool().acquire() as con:
+        row = await con.fetchrow(
+            """
+            INSERT INTO payments(user_id, out_trade_no, amount_cents, pay_type, status)
+            VALUES($1, $2, $3, $4, 'pending')
+            RETURNING id
+            """,
+            user_id, out_trade_no, amount_cents, pay_type,
+        )
+    return int(row["id"])
+
+
+async def get_payment(out_trade_no: str) -> dict[str, Any] | None:
+    async with pool().acquire() as con:
+        row = await con.fetchrow(
+            "SELECT * FROM payments WHERE out_trade_no=$1",
+            out_trade_no,
+        )
+    return _row_to_dict(row)
+
+
+async def settle_payment(
+    out_trade_no: str,
+    expected_amount_cents: int,
+    trade_no: str,
+    notify_raw: str,
+) -> tuple[str, int | None, int | None]:
+    """幂等结算订单。返回 (result, user_id, balance_after)。
+
+    result 可能值:
+      - "success"      首次结算成功，余额已加
+      - "already_paid" 订单已 paid，幂等返回 success，不重复加额
+      - "not_found"    订单不存在
+      - "amount_mismatch" 金额不一致
+      - "no_user"      用户已被删除 (user_id IS NULL)
+    """
+    async with pool().acquire() as con:
+        async with con.transaction():
+            # 锁订单行
+            row = await con.fetchrow(
+                "SELECT id, user_id, amount_cents, status FROM payments "
+                "WHERE out_trade_no=$1 FOR UPDATE",
+                out_trade_no,
+            )
+            if row is None:
+                return "not_found", None, None
+            if int(row["amount_cents"]) != expected_amount_cents:
+                return "amount_mismatch", None, None
+            user_id = row["user_id"]
+            if row["status"] == "paid":
+                # 幂等：查余额返回但不加额
+                if user_id is None:
+                    return "already_paid", None, None
+                bal = await con.fetchval(
+                    "SELECT balance_cents FROM users WHERE id=$1",
+                    user_id,
+                )
+                return "already_paid", int(user_id), int(bal or 0)
+            if user_id is None:
+                # 用户被删了，订单标为 paid 但不加额，避免重复推送
+                await con.execute(
+                    "UPDATE payments SET status='paid', trade_no=$1, "
+                    "notify_raw=$2, paid_at=now() WHERE out_trade_no=$3",
+                    trade_no, notify_raw[:4000], out_trade_no,
+                )
+                return "no_user", None, None
+            # 锁用户行加额
+            bal_row = await con.fetchrow(
+                "UPDATE users SET balance_cents = balance_cents + $1 "
+                "WHERE id=$2 RETURNING balance_cents",
+                expected_amount_cents, user_id,
+            )
+            await con.execute(
+                "UPDATE payments SET status='paid', trade_no=$1, "
+                "notify_raw=$2, paid_at=now() WHERE out_trade_no=$3",
+                trade_no, notify_raw[:4000], out_trade_no,
+            )
+            return "success", int(user_id), int(bal_row["balance_cents"])
+
+
+async def list_user_payments(user_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    async with pool().acquire() as con:
+        rows = await con.fetch(
+            """
+            SELECT id, out_trade_no, trade_no, amount_cents, status, pay_type,
+                   created_at, paid_at
+            FROM payments WHERE user_id=$1 ORDER BY id DESC LIMIT $2
+            """,
+            user_id, limit,
+        )
+    return [dict(r) for r in rows]
 
 
 async def admin_stats() -> dict[str, Any]:

@@ -797,3 +797,119 @@ table.data .mono { font-family: var(--font-mono); font-size: 12px; }
 }
 .divider { height: 1px; background: var(--c-line); margin: var(--s-4) 0; }
 
+
+/* =================== Recharge Modal =================== */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(15, 18, 24, 0.55); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fade-in .18s ease-out;
+}
+.modal-mask.hidden { display: none; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.modal-card {
+  width: 480px; max-width: calc(100vw - 32px);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-4);
+  overflow: hidden;
+  animation: pop-in .22s cubic-bezier(.2,.8,.3,1.2);
+}
+@keyframes pop-in { from { opacity: 0; transform: scale(.94) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+.modal-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: var(--s-5) var(--s-5) var(--s-3);
+  border-bottom: 1px solid var(--c-line);
+}
+.modal-title { font-size: 16px; font-weight: 600; color: var(--c-text); }
+.modal-sub { font-size: 12.5px; color: var(--c-text-mute); margin-top: 2px; }
+.modal-body { padding: var(--s-5); }
+
+.amount-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  margin-bottom: var(--s-4);
+}
+.amount-card {
+  background: var(--c-surface-sunken);
+  border: 1.5px solid var(--c-line);
+  border-radius: var(--r-md);
+  padding: 14px 10px;
+  cursor: pointer; transition: all .15s ease;
+  text-align: center;
+}
+.amount-card:hover { border-color: var(--c-accent-soft); background: var(--c-surface); }
+.amount-card.active {
+  border-color: var(--c-accent);
+  background: linear-gradient(135deg, rgba(255,92,44,.08) 0%, rgba(140,59,255,.08) 100%);
+  box-shadow: 0 4px 12px rgba(255,92,44,.12);
+}
+.amount-card .y {
+  font-size: 18px; font-weight: 600;
+  color: var(--c-text); letter-spacing: -.01em;
+  font-family: var(--font-mono);
+}
+.amount-card .y::before { content: "¥"; font-size: 12px; opacity: .55; margin-right: 1px; }
+.amount-card.active .y { color: var(--c-accent); }
+
+.amount-custom { margin-bottom: var(--s-4); }
+.amount-custom label {
+  display: block; font-size: 12px; color: var(--c-text-2);
+  margin-bottom: 6px; font-weight: 500;
+}
+.amount-input-row {
+  display: flex; align-items: center; gap: 0;
+  background: var(--c-surface-sunken);
+  border: 1.5px solid var(--c-line);
+  border-radius: var(--r-md);
+  overflow: hidden; transition: all .15s;
+}
+.amount-input-row:focus-within { border-color: var(--c-accent); background: var(--c-surface); }
+.amount-input-row .yuan {
+  padding: 0 12px; color: var(--c-text-mute);
+  font-family: var(--font-mono); font-size: 14px;
+  border-right: 1px solid var(--c-line);
+}
+.amount-input-row input {
+  flex: 1; border: none; background: transparent;
+  padding: 10px 12px; font-size: 14px; outline: none;
+  font-family: var(--font-mono);
+}
+
+.recharge-summary {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 14px;
+  background: var(--c-surface-sunken);
+  border-radius: var(--r-md);
+  margin-bottom: var(--s-4);
+}
+.recharge-summary b {
+  font-size: 18px; font-weight: 600; color: var(--c-accent);
+  font-family: var(--font-mono);
+}
+
+/* 轮询小窗 */
+.recharge-watcher {
+  position: fixed; right: 20px; top: 76px; z-index: 180;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-3);
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 12px;
+  min-width: 280px;
+  animation: pop-in .22s cubic-bezier(.2,.8,.3,1.2);
+}
+.recharge-watcher.hidden { display: none; }
+.rw-spinner {
+  width: 22px; height: 22px;
+  border: 2.5px solid var(--c-line);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.rw-title { font-size: 13px; font-weight: 600; color: var(--c-text); }
+.rw-sub { font-size: 11.5px; color: var(--c-text-mute); margin-top: 2px; font-family: var(--font-mono); }
+.recharge-watcher .icon-btn { width: 26px; height: 26px; padding: 0; }

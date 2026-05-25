@@ -81,8 +81,32 @@ class Settings:
     s3_bucket: str
     s3_region: str
 
+    # zpay
+    zpay_pid: str
+    zpay_key: str
+    zpay_base: str
+    public_base_url: str
+    recharge_min_cents: int
+    recharge_max_cents: int
+    recharge_presets_yuan: tuple[int, ...]
+
     # 服务
     port: int
+
+
+def _parse_presets(s: str) -> tuple[int, ...]:
+    out: list[int] = []
+    for p in s.split(","):
+        p = p.strip()
+        if not p:
+            continue
+        try:
+            v = int(p)
+            if v > 0:
+                out.append(v)
+        except ValueError:
+            pass
+    return tuple(out) if out else (5, 10, 20, 50, 100, 200)
 
 
 def load_settings() -> Settings:
@@ -101,6 +125,13 @@ def load_settings() -> Settings:
         s3_secret_key=_env("S3_SECRET_KEY", required=True),
         s3_bucket=_env("S3_BUCKET", "images"),
         s3_region=_env("S3_REGION", "us-east-1"),
+        zpay_pid=_env("ZPAY_PID", ""),
+        zpay_key=_env("ZPAY_KEY", ""),
+        zpay_base=_env("ZPAY_BASE", "https://zpayz.cn"),
+        public_base_url=_env("PUBLIC_BASE_URL", "").rstrip("/"),
+        recharge_min_cents=int(_env("RECHARGE_MIN_CENTS", "100")),
+        recharge_max_cents=int(_env("RECHARGE_MAX_CENTS", "100000")),
+        recharge_presets_yuan=_parse_presets(_env("RECHARGE_PRESETS_YUAN", "5,10,20,50,100,200")),
         port=int(_env("PORT", "8000")),
     )
 

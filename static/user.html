@@ -48,6 +48,7 @@
     </div>
     <div class="topbar-right">
       <span class="stat">余额 <b id="balance">¥0.00</b></span>
+      <button class="btn primary small" id="open-recharge" style="height:30px;padding:0 12px;">+ 充值</button>
       <span class="stat">单价 ¥<span id="price">0.05</span></span>
       <button class="icon-btn" id="open-history" title="生成历史">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -337,6 +338,50 @@
 </div>
 
 <!-- Toast 占位（旧 ID 兼容） -->
+<!-- 充值 Modal -->
+<div id="recharge-modal" class="modal-mask hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title">余额充值</div>
+        <div class="modal-sub">支付宝扫码 · 实时到账</div>
+      </div>
+      <button class="icon-btn" id="close-recharge" type="button" title="关闭">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="amount-grid" id="amount-grid"></div>
+      <div class="amount-custom">
+        <label>自定义金额</label>
+        <div class="amount-input-row">
+          <span class="yuan">¥</span>
+          <input id="amount-custom" type="number" min="1" max="1000" step="1" placeholder="1 — 1000" />
+        </div>
+      </div>
+      <div class="recharge-summary">
+        <span class="dim">应付金额</span>
+        <b id="recharge-total">¥10.00</b>
+      </div>
+      <button class="btn primary full lg" id="recharge-submit">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        支付宝付款
+      </button>
+      <p class="dim" style="font-size:11.5px;text-align:center;margin:10px 0 0;">
+        点击后跳转到支付宝扫码页 · 完成后自动返回
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 充值结果轻提示 -->
+<div id="recharge-watcher" class="recharge-watcher hidden">
+  <div class="rw-spinner"></div>
+  <div>
+    <div class="rw-title">等待支付结果</div>
+    <div class="rw-sub" id="rw-sub">订单 <span id="rw-id">-</span></div>
+  </div>
+  <button class="icon-btn" id="rw-close" type="button">×</button>
+</div>
+
 <div id="toast" class="toast hidden" style="position:fixed;right:20px;bottom:20px;z-index:200;"></div>
 
 <script>
@@ -899,6 +944,124 @@ document.querySelectorAll(".empty-state .ex").forEach((b) => {
 $("open-history").onclick = () => $("history-drawer").classList.toggle("open");
 $("close-history").onclick = () => $("history-drawer").classList.remove("open");
 
+/* ===================== 充值 ===================== */
+let rechargeAmountCents = 1000; // 默认 ¥10
+let rechargeWatchTimer = null;
+
+function renderAmountGrid(presets) {
+  const grid = $("amount-grid");
+  grid.innerHTML = "";
+  presets.forEach((y) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "amount-card";
+    card.dataset.cents = String(y * 100);
+    card.innerHTML = `<div class="y">${y}</div>`;
+    if (y * 100 === rechargeAmountCents) card.classList.add("active");
+    card.onclick = () => {
+      rechargeAmountCents = y * 100;
+      $("amount-custom").value = "";
+      grid.querySelectorAll(".amount-card").forEach((c) =>
+        c.classList.toggle("active", c === card));
+      updateRechargeTotal();
+    };
+    grid.appendChild(card);
+  });
+}
+
+function updateRechargeTotal() {
+  $("recharge-total").textContent =
+    "¥" + (rechargeAmountCents / 100).toFixed(2);
+}
+
+async function openRecharge() {
+  if (!accessKey) { toast("请先登录", "error"); return; }
+  try {
+    const data = await api("/api/recharge/presets");
+    if (!data.enabled) {
+      toast("充值功能未启用（管理员未配置 zpay）", "error");
+      return;
+    }
+    renderAmountGrid(data.presets_yuan);
+    updateRechargeTotal();
+    $("recharge-modal").classList.remove("hidden");
+  } catch (e) { toast("加载预设失败：" + e.message, "error"); }
+}
+
+function closeRecharge() { $("recharge-modal").classList.add("hidden"); }
+
+$("open-recharge").onclick = openRecharge;
+$("close-recharge").onclick = closeRecharge;
+$("recharge-modal").addEventListener("click", (e) => {
+  if (e.target.id === "recharge-modal") closeRecharge();
+});
+$("amount-custom").addEventListener("input", (e) => {
+  const v = parseFloat(e.target.value);
+  if (isFinite(v) && v > 0) {
+    rechargeAmountCents = Math.round(v * 100);
+    document.querySelectorAll(".amount-card")
+      .forEach((c) => c.classList.remove("active"));
+    updateRechargeTotal();
+  }
+});
+
+$("recharge-submit").onclick = async () => {
+  const yuan = rechargeAmountCents / 100;
+  if (yuan < 1 || yuan > 1000) {
+    toast("金额范围 ¥1 — ¥1000", "error"); return;
+  }
+  const btn = $("recharge-submit");
+  btn.disabled = true;
+  try {
+    const data = await api("/api/recharge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_key: accessKey, amount_yuan: yuan }),
+    });
+    // 记录待轮询订单，存在 sessionStorage
+    sessionStorage.setItem("image2_pending_pay", data.out_trade_no);
+    closeRecharge();
+    // 跳转收银台
+    window.location.href = data.pay_url;
+  } catch (e) {
+    btn.disabled = false;
+    toast("发起支付失败：" + e.message, "error");
+  }
+};
+
+/* 轮询 */
+function startWatching(outTradeNo) {
+  $("rw-id").textContent = outTradeNo.length > 16
+    ? outTradeNo.slice(0, 8) + "…" + outTradeNo.slice(-4)
+    : outTradeNo;
+  $("recharge-watcher").classList.remove("hidden");
+  let elapsed = 0;
+  const tick = async () => {
+    if (elapsed > 300) {
+      stopWatching(); toast("超时未收到付款，如已付款请联系管理员", "error");
+      return;
+    }
+    try {
+      const r = await api(`/api/payment/${outTradeNo}?access_key=` + encodeURIComponent(accessKey));
+      if (r.status === "paid") {
+        stopWatching();
+        sessionStorage.removeItem("image2_pending_pay");
+        toast(`充值成功 ¥${(r.amount_cents / 100).toFixed(2)}`, "success");
+        await refreshMe();
+        return;
+      }
+    } catch (e) { /* 静默，下一轮再试 */ }
+    elapsed += 2;
+    rechargeWatchTimer = setTimeout(tick, 2000);
+  };
+  tick();
+}
+function stopWatching() {
+  if (rechargeWatchTimer) { clearTimeout(rechargeWatchTimer); rechargeWatchTimer = null; }
+  $("recharge-watcher").classList.add("hidden");
+}
+$("rw-close").onclick = stopWatching;
+
 // 初始化可见性
 updateIconPriceLabel();
 
@@ -909,7 +1072,22 @@ if (accessKey) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ access_key: accessKey }),
-  }).then(showApp).catch(() => logout());
+  }).then((me) => {
+    showApp(me);
+    // 检查是否有待轮询的充值订单
+    const u = new URLSearchParams(location.search);
+    const fromUrl = u.get("recharge");
+    const fromStorage = sessionStorage.getItem("image2_pending_pay");
+    const pending = fromUrl || fromStorage;
+    if (pending) {
+      // 清掉 URL 参数避免刷新残留
+      if (fromUrl) {
+        history.replaceState(null, "", location.pathname);
+      }
+      sessionStorage.setItem("image2_pending_pay", pending);
+      startWatching(pending);
+    }
+  }).catch(() => logout());
 }
 </script>
 </body>
