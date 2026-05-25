@@ -167,14 +167,28 @@
     </div>
 
     <div class="card hidden" id="result-card">
-      <h2>结果</h2>
-      <div id="result-wrap">
-        <img id="result-img" class="result-img" />
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">结果</h2>
+        <div class="toolbar" id="size-toolbar" style="display:none;">
+          <span class="dim" style="font-size:12px;">预览尺寸</span>
+          <button class="btn small secondary preview-size active" data-size="160" type="button">160</button>
+          <button class="btn small secondary preview-size" data-size="256" type="button">256</button>
+          <button class="btn small secondary preview-size active" data-size="420" type="button">420</button>
+          <button class="btn small secondary preview-size" data-size="640" type="button">640</button>
+        </div>
       </div>
-      <div style="margin-top:10px;display:flex;gap:8px;">
-        <a id="download-link" class="btn small" download="image.png">下载</a>
-        <button class="btn small secondary hidden" id="download-png-from-svg">下载 PNG</button>
+      <div id="result-wrap" class="result-wrap">
+        <img id="result-img" />
       </div>
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <a id="download-link" class="btn small" download="image.png">↓ 下载</a>
+        <button class="btn small secondary hidden" id="download-png-from-svg" type="button">PNG 1024</button>
+        <button class="btn small secondary hidden" id="download-png-2048" type="button">PNG 2048</button>
+        <button class="btn small ghost hidden" id="copy-svg" type="button">📝 复制 SVG</button>
+        <button class="btn small ghost hidden" id="view-svg" type="button">🔍 查看源码</button>
+        <span class="dim" id="result-info" style="font-size:12px;margin-left:auto;"></span>
+      </div>
+      <pre id="svg-source" class="mono hidden" style="margin-top:14px;padding:14px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:9px;max-height:280px;overflow:auto;font-size:12px;line-height:1.5;"></pre>
     </div>
 
     <div class="card">
@@ -347,10 +361,17 @@ async function generate() {
 }
 
 function showImageResult(url) {
-  $("result-wrap").innerHTML = '<img id="result-img" class="result-img" src="' + url + '" />';
+  const wrap = $("result-wrap");
+  wrap.className = "result-wrap image-mode";
+  wrap.innerHTML = '<img id="result-img" src="' + url + '" />';
   $("download-link").href = url;
   $("download-link").download = "image.png";
-  $("download-png-from-svg").classList.add("hidden");
+  $("download-link").classList.remove("hidden");
+  // 隐藏图标专用按钮
+  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.add("hidden"));
+  $("size-toolbar").style.display = "none";
+  $("svg-source").classList.add("hidden");
+  $("result-info").textContent = "";
   $("result-card").classList.remove("hidden");
 }
 
@@ -359,36 +380,56 @@ function showSvgResult(svgText, downloadName) {
   lastSvgText = svgText;
   const blob = new Blob([svgText], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
-  $("result-wrap").innerHTML = '<img class="result-img" style="padding:24px;" src="' + url + '" />';
+  const wrap = $("result-wrap");
+  wrap.className = "result-wrap icon-mode";
+  wrap.innerHTML = '<img src="' + url + '" />';
   $("download-link").href = url;
   $("download-link").download = downloadName + ".svg";
-  $("download-png-from-svg").classList.remove("hidden");
+  $("download-link").textContent = "↓ 下载 SVG";
+  $("download-link").classList.remove("hidden");
+  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.remove("hidden"));
+  $("size-toolbar").style.display = "flex";
+  $("svg-source").classList.add("hidden");
+  $("svg-source").textContent = svgText;
+  // 从 SVG 抽 viewBox 展示尺寸信息
+  const m = svgText.match(/viewBox="([\d.\-\s]+)"/);
+  const sizeStr = m ? m[1].trim() : "未知";
+  const bytes = new Blob([svgText]).size;
+  $("result-info").textContent = `viewBox: ${sizeStr} · ${bytes} 字节`;
   $("result-card").classList.remove("hidden");
-  // 应用当前选中的预览背景
+  // 应用预览背景
   const active = document.querySelector(".preview-bg.active");
   setPreviewBg(active ? active.dataset.bg : "light");
+  // 应用预览尺寸
+  applyPreviewSize(getActiveSize());
 }
 
-async function svgToPngDownload(filename) {
+function getActiveSize() {
+  const b = document.querySelector(".preview-size.active");
+  return b ? parseInt(b.dataset.size, 10) : 420;
+}
+function applyPreviewSize(px) {
+  const img = $("result-wrap").querySelector("img");
+  if (img) { img.style.width = px + "px"; img.style.height = px + "px"; }
+}
+
+async function svgToPngDownload(filename, target = 1024) {
   if (!lastSvgText) return;
   const blob = new Blob([lastSvgText], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   const img = new Image();
   img.crossOrigin = "anonymous";
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-  // 调试 viewBox 取尺寸；SVG 没 width/height 时 naturalWidth 可能为 0
-  let w = img.naturalWidth || 0;
-  let h = img.naturalHeight || 0;
+  let w = img.naturalWidth || 0, h = img.naturalHeight || 0;
   if (!w || !h) {
     const m = lastSvgText.match(/viewBox="([\d.\-\s]+)"/);
     if (m) {
       const [, , vw, vh] = m[1].trim().split(/\s+/).map(Number);
-      w = vw || 1024; h = vh || 1024;
-    } else { w = 1024; h = 1024; }
+      w = vw || target; h = vh || target;
+    } else { w = target; h = target; }
   }
-  const scale = Math.max(1, Math.floor(1024 / Math.max(w, h)));
-  const cw = w * scale;
-  const ch = h * scale;
+  const ratio = target / Math.max(w, h);
+  const cw = Math.round(w * ratio), ch = Math.round(h * ratio);
   const canvas = document.createElement("canvas");
   canvas.width = cw; canvas.height = ch;
   const ctx = canvas.getContext("2d");
@@ -399,7 +440,7 @@ async function svgToPngDownload(filename) {
   canvas.toBlob((png) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(png);
-    a.download = filename + ".png";
+    a.download = `${filename}-${target}.png`;
     a.click();
   }, "image/png");
 }
@@ -449,7 +490,27 @@ $("key-input").addEventListener("keydown", (e) => { if (e.key === "Enter") login
 $("logout").onclick = (e) => { e.preventDefault(); logout(); };
 $("generate-btn").onclick = generate;
 $("icon-generate-btn").onclick = generateIcon;
-$("download-png-from-svg").onclick = () => svgToPngDownload("icon");
+$("download-png-from-svg").onclick = () => svgToPngDownload("icon", 1024);
+$("download-png-2048").onclick = () => svgToPngDownload("icon", 2048);
+$("copy-svg").onclick = async () => {
+  if (!lastSvgText) return;
+  try {
+    await navigator.clipboard.writeText(lastSvgText);
+    toast("SVG 源码已复制", "success");
+  } catch (e) {
+    toast("复制失败：" + e.message, "error");
+  }
+};
+$("view-svg").onclick = () => {
+  $("svg-source").classList.toggle("hidden");
+};
+document.querySelectorAll(".preview-size").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".preview-size").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    applyPreviewSize(parseInt(b.dataset.size, 10));
+  };
+});
 
 // ---------- 图标交互逻辑 ----------
 const NEEDS_STROKE = new Set([
@@ -582,12 +643,10 @@ document.querySelectorAll(".preview-bg").forEach((b) => {
 function setPreviewBg(kind) {
   const wrap = $("result-wrap");
   if (!wrap) return;
-  const img = wrap.querySelector("img");
-  if (!img) { wrap.dataset.bg = kind; return; }
-  if (kind === "light") img.style.background = "#fff";
-  else if (kind === "dark") img.style.background = "#0b0d12";
+  if (kind === "light") wrap.style.background = "#fff";
+  else if (kind === "dark") wrap.style.background = "#0b0d12";
   else if (kind === "checker")
-    img.style.background = "repeating-conic-gradient(#2a2f3e 0% 25%, #1a1f2e 0% 50%) 50%/16px 16px";
+    wrap.style.background = "repeating-conic-gradient(#2a2f3e 0% 25%, #1a1f2e 0% 50%) 50%/24px 24px";
   wrap.dataset.bg = kind;
 }
 

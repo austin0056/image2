@@ -148,15 +148,45 @@ select { cursor: pointer; }
   box-shadow: var(--shadow-md);
 }
 
+/* SVG 在 <img> 内如果没 width/height 会默认 300×150，
+   这里强制变成大预览。 */
+.result-wrap {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 480px;
+  background: var(--bg-elev2);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.result-wrap img {
+  display: block;
+  max-width: 100%;
+  max-height: 720px;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+.result-wrap.icon-mode img {
+  width: 420px; height: 420px;
+  object-fit: contain;
+}
+.result-wrap.image-mode img {
+  max-width: 100%;
+}
+
 .history-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 16px;
 }
 .history-item {
   background: var(--bg-elev2);
   border: 1px solid var(--border-soft);
-  border-radius: 10px; overflow: hidden;
+  border-radius: 12px; overflow: hidden;
   cursor: pointer;
   position: relative;
   transition: transform .12s, border-color .12s, box-shadow .12s;
@@ -167,11 +197,11 @@ select { cursor: pointer; }
   box-shadow: var(--shadow-sm);
 }
 .history-item img {
-  width: 100%; height: 144px; object-fit: cover; display: block;
+  width: 100%; height: 168px; object-fit: cover; display: block;
   background: #0b0d12;
 }
 .history-item.icon img {
-  background: #fff; object-fit: contain; padding: 16px;
+  background: #fff; object-fit: contain; padding: 22px;
 }
 .history-item .meta {
   padding: 8px 10px; font-size: 11.5px; color: var(--text-mute);
