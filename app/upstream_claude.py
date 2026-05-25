@@ -1,5 +1,5 @@
 """Claude 中转上游封装：Anthropic 原生 /v1/messages 协议。
-专注用例：生成单个高质量 SVG 图标，模仿主流图标库的设计语言。"""
+专注用例：高质量 SVG 图标，模仿主流图标库，带 CoT 推理与审美约束。"""
 from __future__ import annotations
 
 import logging
@@ -15,7 +15,7 @@ CLAUDE_BASE = os.getenv("CLAUDE_BASE", "https://claude.moon9.cloud").rstrip("/")
 CLAUDE_KEY = os.getenv("CLAUDE_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "kiro-opus-4.7")
 
-_TIMEOUT = httpx.Timeout(connect=15.0, read=120.0, write=60.0, pool=15.0)
+_TIMEOUT = httpx.Timeout(connect=15.0, read=180.0, write=60.0, pool=15.0)
 
 
 class ClaudeError(RuntimeError):
@@ -23,129 +23,154 @@ class ClaudeError(RuntimeError):
 
 
 # ---------- 各图标库的设计语言 ----------
-# 这些规则参考自各库的官方贡献指南/设计文档
 LIBRARY_GUIDES: dict[str, str] = {
     "lucide": (
-        "模仿 Lucide (lucide.dev) 的设计语言：\n"
-        "- viewBox=\"0 0 24 24\"，画布严格 24x24\n"
-        "- 纯线性：fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"\n"
-        "- stroke-linecap=\"round\" stroke-linejoin=\"round\"\n"
-        "- 留 2px 安全边距，主元素在 2,2 到 22,22 区域内\n"
-        "- 几何对称、最少元素，避免装饰性细节\n"
-        "- 圆角统一，斜线 45°/30°/60° 优先\n"
+        "Lucide (lucide.dev)：viewBox=\"0 0 24 24\"；纯线性 fill=\"none\" "
+        "stroke=\"currentColor\" stroke-width=\"2\"；stroke-linecap/linejoin=\"round\"；"
+        "主元素留 2px 边距；几何对称、最少元素。"
     ),
     "heroicons-outline": (
-        "模仿 Heroicons Outline (heroicons.com)：\n"
-        "- viewBox=\"0 0 24 24\"\n"
-        "- fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"\n"
-        "- stroke-linecap=\"round\" stroke-linejoin=\"round\"\n"
-        "- 比 Lucide 更细，留 1.5px 边距\n"
-        "- 优雅的弧线和有机曲线\n"
+        "Heroicons Outline：viewBox=\"0 0 24 24\"；fill=\"none\" stroke=\"currentColor\" "
+        "stroke-width=\"1.5\"；linecap/linejoin=\"round\"；优雅曲线，1.5px 边距。"
     ),
     "heroicons-solid": (
-        "模仿 Heroicons Solid (heroicons.com)：\n"
-        "- viewBox=\"0 0 24 24\"\n"
-        "- 纯填充：fill=\"currentColor\"，无 stroke\n"
-        "- 用 fill-rule=\"evenodd\" clip-rule=\"evenodd\" 处理孔洞\n"
-        "- 实心、扁平、无渐变\n"
-        "- 留 1.5px 边距\n"
+        "Heroicons Solid：viewBox=\"0 0 24 24\"；纯填充 fill=\"currentColor\" 无 stroke；"
+        "fill-rule=\"evenodd\" clip-rule=\"evenodd\" 处理孔洞；扁平实心，1.5px 边距。"
     ),
     "phosphor": (
-        "模仿 Phosphor regular (phosphoricons.com)：\n"
-        "- viewBox=\"0 0 256 256\"\n"
-        "- 纯线性：fill=\"none\" stroke=\"currentColor\" stroke-width=\"16\"\n"
-        "- stroke-linecap=\"round\" stroke-linejoin=\"round\"\n"
-        "- 大画布精致细节，主元素在 24,24 到 232,232\n"
-        "- 友好的圆润感、稍微夸张的圆角\n"
+        "Phosphor regular：viewBox=\"0 0 256 256\"；fill=\"none\" stroke=\"currentColor\" "
+        "stroke-width=\"16\"；linecap/linejoin=\"round\"；圆润友好，主元素 24-232 范围。"
     ),
     "tabler": (
-        "模仿 Tabler Icons (tabler.io/icons)：\n"
-        "- viewBox=\"0 0 24 24\"\n"
-        "- fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"\n"
-        "- stroke-linecap=\"round\" stroke-linejoin=\"round\"\n"
-        "- 类似 Lucide 但允许更复杂结构\n"
-        "- 严格像素对齐，边距 2px\n"
+        "Tabler：viewBox=\"0 0 24 24\"；fill=\"none\" stroke=\"currentColor\" "
+        "stroke-width=\"2\"；linecap/linejoin=\"round\"；像素严格对齐，2px 边距。"
     ),
     "feather": (
-        "模仿 Feather Icons (feathericons.com)：\n"
-        "- viewBox=\"0 0 24 24\"\n"
-        "- fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"\n"
-        "- stroke-linecap=\"round\" stroke-linejoin=\"round\"\n"
-        "- 极简主义，更少元素，留更多负空间\n"
+        "Feather：viewBox=\"0 0 24 24\"；fill=\"none\" stroke=\"currentColor\" "
+        "stroke-width=\"2\"；linecap/linejoin=\"round\"；极简，更多负空间。"
     ),
     "material": (
-        "模仿 Material Symbols (fonts.google.com/icons) 实心风格：\n"
-        "- viewBox=\"0 0 24 24\"\n"
-        "- 纯填充：fill=\"currentColor\"\n"
-        "- 几何块面，对齐 4px 网格\n"
-        "- 无 stroke，元素融为一体\n"
+        "Material Symbols：viewBox=\"0 0 24 24\"；纯填充 fill=\"currentColor\"；"
+        "几何块面，对齐 4px 网格，无 stroke。"
     ),
     "duotone": (
-        "双色图标风格：\n"
-        "- viewBox=\"0 0 24 24\"\n"
-        "- 主轮廓 stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\"\n"
-        "- 同时有一个填充层 fill=\"currentColor\" opacity=\"0.2\" 表示背景色块\n"
-        "- 填充层放在 stroke 层之前（先绘制）\n"
-        "- 整体保留线性骨架\n"
+        "Duotone：viewBox=\"0 0 24 24\"；先画填充层 fill=\"#SECONDARY\" opacity=\"0.2\"，"
+        "再画轮廓层 stroke=\"#PRIMARY\" stroke-width=\"2\" fill=\"none\"；保留线性骨架。"
     ),
 }
 
 
-def _system_prompt(library: str) -> str:
-    """根据选择的图标库构造 system prompt。"""
-    guide = LIBRARY_GUIDES.get(library, "")
+# ---------- 审美 Checklist（写进 system prompt）----------
+AESTHETIC_CHECKLIST = """
+设计审美 Checklist（必须全部满足）：
+1. 视觉重心：复杂或上重下轻形状，向下偏移 0.5-1 单位（光学对齐而非几何对齐）。
+2. 像素对齐：stroke=2 时端点落在整数坐标，避免抗锯齿模糊。
+3. 笔画一致：同图标内 stroke-width 必须完全相同，不混用粗细。
+4. 圆角阶梯：rx/ry 用 {2, 4, 6, 8} 之一，整图统一一种值。
+5. 安全留白：最外层留 ≥ viewBox 8% 的边距，绝不顶到边。
+6. 元素精简：核心形状 ≤ 5 个，避免堆砌细节。
+7. 几何优先：能用 <circle>/<rect>/<line>/<polygon> 就不用 <path>。
+8. 路径简洁：单条 path 命令 ≤ 12 个，不允许冗余 M/L。
+9. 对称性：默认轴对称或旋转对称，主题强需求才打破。
+10. 16px 可读：关键特征在 16px 显示尺寸下仍 ≥ 4px 可识别。
+"""
 
-    base = """你是一名专业的图标设计师，擅长仿照知名开源图标库的视觉语言。
-根据用户描述生成一个 SVG 图标。
+
+def _build_system_prompt(library: str, dual_color: bool) -> str:
+    """构造带 CoT 推理 + 审美约束的 system prompt。"""
+    guide = LIBRARY_GUIDES.get(library, "")
+    color_section = (
+        "颜色规则：用户给出主色 PRIMARY 和辅色 SECONDARY 时，把 stroke/主轮廓用 PRIMARY，"
+        "fill/强调元素用 SECONDARY；任一为空则该位置使用 currentColor。"
+        if dual_color
+        else "颜色规则：用户给主色时替换 currentColor；为空则保持 currentColor。"
+    )
+
+    base = f"""你是一名顶尖的图标设计师，擅长仿照主流开源图标库的视觉语言。
+请按下面的"思考-审查-输出"流程生成一个 SVG 图标。
+
+# 必须按此结构输出（严格顺序）
+
+[ANALYSIS]
+拆解主题：核心隐喻是什么？2-3 个最强代表符号？
+
+[CONCEPT]
+列 2-3 个候选构图，给每个打分（清晰度/辨识度/原创性 各 1-10）。选最高分。
+
+[GEOMETRY]
+在指定 viewBox 上规划：主元素位置、视觉重心坐标、留白分布。
+
+[PALETTE]
+说明主色辅色如何分配到不同元素层。
+
+[SVG]
+<svg ...>
+  ...完整 SVG ...
+</svg>
 
 # 严格输出要求
-1. 只返回一段完整的 SVG 代码，从 <svg 开头到 </svg> 结尾。
-2. 不要任何解释、markdown 围栏（```）、前后注释。
-3. 必须包含 viewBox。
-4. 禁止 <script>、<foreignObject>、远程引用（xlink:href、外部 url）。
-5. 颜色优先用 currentColor；如果用户指定主色，则使用十六进制色值。
+- 整段必须包含上述 5 个标记，且 [SVG] 只能出现一次。
+- [SVG] 之后必须立刻是 <svg 开头到 </svg> 结尾，不要 markdown 围栏。
+- 禁止 <script>、<foreignObject>、远程引用 (xlink:href、外部 url)。
 
-# 设计原则
-- 单一图标主题，几何对称，避免堆砌元素。
-- 严格对齐到画布的整数像素或半像素。
-- 留出安全边距，不要顶到边缘。
-- 圆角、笔画端点统一。
-- 关键形状用最少的路径表达；能用 <circle>/<rect>/<line> 就不用 <path>。
-- 避免渐变、阴影、滤镜（除非用户明确要求）。
-"""
-    if guide:
-        base += "\n# 当前要模仿的视觉风格\n" + guide
-    base += "\n用户的颜色偏好优先级最高，可以覆盖默认的 currentColor。"
+# 当前要模仿的图标库
+{guide or "由 AI 自由发挥（建议 24x24，线性优先）。"}
+
+# 颜色
+{color_section}
+
+{AESTHETIC_CHECKLIST}
+
+记住：先严肃思考前 4 段，再输出 [SVG]。粗暴跳过推理段会被视为失败。"""
     return base
 
 
 def _build_user_prompt(
     prompt: str,
     library: str,
-    color: str,
+    color_primary: str,
+    color_secondary: str,
     stroke_width: float | None,
 ) -> str:
     parts = [f"主题：{prompt.strip()}"]
     if library and library != "auto":
         parts.append(f"参考图标库：{library}")
-    if color:
-        parts.append(f"主色：{color}（替换 currentColor）")
+    if color_primary:
+        parts.append(f"主色 PRIMARY = {color_primary}")
+    if color_secondary:
+        parts.append(f"辅色 SECONDARY = {color_secondary}")
+    if not color_primary and not color_secondary:
+        parts.append("未指定颜色，请使用 currentColor。")
     if stroke_width:
         parts.append(f"笔画粗细：{stroke_width}（覆盖默认）")
-    parts.append("请直接输出 SVG，从 <svg 开始，</svg> 结束，不要任何其他文字。")
+    parts.append("请严格按 [ANALYSIS]→[CONCEPT]→[GEOMETRY]→[PALETTE]→[SVG] 顺序输出。")
     return "\n".join(parts)
 
 
 def _extract_svg(text: str) -> str:
-    """从 Claude 返回的内容里抽出第一段 <svg>...</svg>。"""
+    """从 Claude 返回内容里抽出 [SVG] 段后的 <svg>...</svg>。
+    兼容老格式（无 [SVG] 标记，直接 <svg>）。"""
     if not text:
         raise ClaudeError("返回内容为空")
-    text = re.sub(r"^```(?:svg|xml|html)?\s*", "", text.strip(), flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text.strip())
-    m = re.search(r"<svg[\s\S]*?</svg>", text, flags=re.IGNORECASE)
+
+    # 优先取 [SVG] 段后内容
+    svg_seg = text
+    m_seg = re.search(r"\[SVG\]\s*", text, flags=re.IGNORECASE)
+    if m_seg:
+        svg_seg = text[m_seg.end():]
+
+    # 去 markdown 围栏
+    svg_seg = re.sub(r"^```(?:svg|xml|html)?\s*", "", svg_seg.strip(), flags=re.IGNORECASE)
+    svg_seg = re.sub(r"\s*```$", "", svg_seg.strip())
+
+    m = re.search(r"<svg[\s\S]*?</svg>", svg_seg, flags=re.IGNORECASE)
     if not m:
-        raise ClaudeError(f"未找到 SVG 标签。返回片段: {text[:200]}")
+        # 兼容：从原文找
+        m = re.search(r"<svg[\s\S]*?</svg>", text, flags=re.IGNORECASE)
+        if not m:
+            raise ClaudeError(f"未找到 SVG 标签。返回片段: {text[:300]}")
     svg = m.group(0)
+
     try:
         ET.fromstring(svg)
     except ET.ParseError as e:
@@ -157,25 +182,65 @@ def _extract_svg(text: str) -> str:
     return svg
 
 
+def _audit_svg(svg: str) -> list[str]:
+    """轻量审计，返回质量警告（不阻塞）。"""
+    warnings: list[str] = []
+    try:
+        root = ET.fromstring(svg)
+    except ET.ParseError:
+        return ["SVG 解析失败"]
+
+    # 元素数量
+    descendants = list(root.iter())
+    n_paths = sum(1 for el in descendants if el.tag.endswith("path"))
+    n_shapes = sum(
+        1 for el in descendants
+        if any(el.tag.endswith(t) for t in ("circle", "rect", "line", "polygon", "polyline", "ellipse", "path"))
+    )
+    if n_shapes > 8:
+        warnings.append(f"形状数量较多 ({n_shapes})，建议 ≤ 5")
+    if n_paths > 6:
+        warnings.append(f"path 数量较多 ({n_paths})，能用基础形状的不要用 path")
+
+    # 笔画一致性
+    strokes = set()
+    for el in descendants:
+        sw = el.get("stroke-width")
+        if sw:
+            try:
+                strokes.add(float(sw))
+            except ValueError:
+                pass
+    if len(strokes) > 1:
+        warnings.append(f"笔画粗细不一致：{sorted(strokes)}")
+
+    return warnings
+
+
 async def generate_icon_svg(
     prompt: str,
     *,
     library: str = "lucide",
-    color: str = "",
+    color_primary: str = "",
+    color_secondary: str = "",
     stroke_width: float | None = None,
-) -> str:
+) -> tuple[str, list[str]]:
+    """返回 (svg, quality_warnings)。"""
     if not CLAUDE_KEY:
         raise ClaudeError("CLAUDE_KEY 未配置")
 
+    dual = bool(color_primary or color_secondary) or library == "duotone"
     url = f"{CLAUDE_BASE}/v1/messages"
     body = {
         "model": CLAUDE_MODEL,
-        "max_tokens": 4096,
-        "system": _system_prompt(library),
+        "max_tokens": 6144,
+        "system": _build_system_prompt(library, dual_color=dual),
         "messages": [
             {
                 "role": "user",
-                "content": _build_user_prompt(prompt, library, color, stroke_width),
+                "content": _build_user_prompt(
+                    prompt, library, color_primary, color_secondary, stroke_width
+                ),
             },
         ],
     }
@@ -185,7 +250,10 @@ async def generate_icon_svg(
         "content-type": "application/json",
     }
 
-    log.info("claude POST %s model=%s library=%s", url, CLAUDE_MODEL, library)
+    log.info(
+        "claude POST %s model=%s library=%s dual=%s",
+        url, CLAUDE_MODEL, library, dual,
+    )
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         try:
             resp = await client.post(url, json=body, headers=headers)
@@ -220,4 +288,8 @@ async def generate_icon_svg(
         log.error("claude 返回不含文本: %s", str(data)[:500])
         raise ClaudeError("上游返回不含文本内容")
 
-    return _extract_svg(text)
+    svg = _extract_svg(text)
+    warnings = _audit_svg(svg)
+    if warnings:
+        log.info("svg quality warnings: %s", warnings)
+    return svg, warnings

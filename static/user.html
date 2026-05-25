@@ -114,14 +114,33 @@
             </select>
             <div class="dim" style="font-size:11.5px;margin-top:4px;" id="library-hint">Lucide 风格：24×2px 线性，圆角结尾，几何对称。</div>
           </div>
-          <div>
-            <label>主色</label>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <input id="icon-color" type="color" value="#6aa6ff" style="width:42px;height:38px;padding:2px;cursor:pointer;" />
-              <input id="icon-color-text" type="text" value="#6aa6ff" style="flex:1;" />
-              <button class="btn small ghost" id="icon-color-clear" type="button" title="清空使用 currentColor">×</button>
+        <div style="margin-top:12px;">
+          <label>颜色方案</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div>
+              <div class="dim" style="font-size:11.5px;margin-bottom:6px;">主色 Primary（轮廓/主形状）</div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input id="icon-color" type="color" value="#6aa6ff" style="width:38px;height:36px;padding:2px;cursor:pointer;" />
+                <input id="icon-color-text" type="text" value="#6aa6ff" style="flex:1;" />
+                <button class="btn small ghost" id="icon-color-clear" type="button" title="清空 → 使用 currentColor">×</button>
+              </div>
+              <div id="color-swatches" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
             </div>
-            <div id="color-swatches" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div>
+            <div>
+              <div class="dim" style="font-size:11.5px;margin-bottom:6px;">辅色 Secondary（填充/强调）</div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input id="icon-color2" type="color" value="#9b6aff" style="width:38px;height:36px;padding:2px;cursor:pointer;" />
+                <input id="icon-color2-text" type="text" value="" placeholder="留空则不用辅色" style="flex:1;" />
+                <button class="btn small ghost" id="icon-color2-clear" type="button" title="清空">×</button>
+              </div>
+              <div id="color2-swatches" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;"></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+            <button class="btn small secondary" id="palette-mono" type="button">一个色</button>
+            <button class="btn small secondary" id="palette-complement" type="button">互补色</button>
+            <button class="btn small secondary" id="palette-analog" type="button">类似色</button>
+            <button class="btn small secondary" id="palette-shuffle" type="button">🎲 智能配色</button>
           </div>
         </div>
 
@@ -392,10 +411,12 @@ async function generateIcon() {
   fd.append("access_key", accessKey);
   fd.append("prompt", prompt);
   fd.append("library", $("icon-library").value);
-  // 取色器与文本同步后以 text 为准
-  const colorVal = $("icon-color-text").value.trim();
-  if (colorVal) fd.append("color", colorVal);
-  // 只在线性/duotone 下传 stroke_width
+  // 双色
+  const cp = $("icon-color-text").value.trim();
+  const cs = $("icon-color2-text").value.trim();
+  if (cp) fd.append("color_primary", cp);
+  if (cs) fd.append("color_secondary", cs);
+  // 线性库才传 stroke_width
   const lib = $("icon-library").value;
   if (NEEDS_STROKE.has(lib)) {
     fd.append("stroke_width", $("icon-stroke").value);
@@ -403,7 +424,7 @@ async function generateIcon() {
 
   const btn = $("icon-generate-btn");
   btn.disabled = true;
-  $("icon-status").innerHTML = '<span class="spinner"></span> 生成中（通常 5-15 秒）...';
+  $("icon-status").innerHTML = '<span class="spinner"></span> 思考中（设计师推理 · 约 15-30 秒）...';
   try {
     const data = await api("/api/generate-icon", { method: "POST", body: fd });
     $("balance").textContent = fmtMoney(data.balance_cents);
@@ -450,24 +471,98 @@ const PRESET_COLORS = [
   "#3ec97b", "#f4b942", "#ef5a5a", "#22c1c3",
 ];
 // 创建预设色板
-const swatches = $("color-swatches");
-if (swatches) {
+function renderSwatches(boxId, targetColor, targetText) {
+  const box = $(boxId);
+  if (!box) return;
+  box.innerHTML = "";
   PRESET_COLORS.forEach((c) => {
     const s = document.createElement("button");
     s.type = "button";
-    s.style.cssText = `width:22px;height:22px;border-radius:6px;border:1px solid #2e3650;background:${c};cursor:pointer;padding:0;`;
+    s.style.cssText = `width:20px;height:20px;border-radius:5px;border:1px solid #2e3650;background:${c};cursor:pointer;padding:0;`;
     s.title = c;
-    s.onclick = () => { $("icon-color").value = c; $("icon-color-text").value = c; };
-    swatches.appendChild(s);
+    s.onclick = () => { $(targetColor).value = c; $(targetText).value = c; };
+    box.appendChild(s);
   });
 }
+renderSwatches("color-swatches", "icon-color", "icon-color-text");
+renderSwatches("color2-swatches", "icon-color2", "icon-color2-text");
+
 // 取色器 <-> 文本 双向同步
-$("icon-color").addEventListener("input", (e) => { $("icon-color-text").value = e.target.value; });
-$("icon-color-text").addEventListener("input", (e) => {
-  const v = e.target.value.trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(v)) $("icon-color").value = v;
-});
+function bindColorSync(picker, text) {
+  $(picker).addEventListener("input", (e) => { $(text).value = e.target.value; });
+  $(text).addEventListener("input", (e) => {
+    const v = e.target.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) $(picker).value = v;
+  });
+}
+bindColorSync("icon-color", "icon-color-text");
+bindColorSync("icon-color2", "icon-color2-text");
 $("icon-color-clear").onclick = () => { $("icon-color-text").value = ""; };
+$("icon-color2-clear").onclick = () => { $("icon-color2-text").value = ""; };
+
+// 颜色工具
+function hexToHsl(hex) {
+  const m = hex.replace("#", "");
+  const r = parseInt(m.substr(0, 2), 16) / 255;
+  const g = parseInt(m.substr(2, 2), 16) / 255;
+  const b = parseInt(m.substr(4, 2), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  let h = 0, s = 0; const l = (mx + mn) / 2;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0));
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return [h, s, l];
+}
+function hslToHex(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(1, s)); l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let [r, g, b] = [0, 0, 0];
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const to = (v) => Math.round((v + m) * 255).toString(16).padStart(2, "0");
+  return "#" + to(r) + to(g) + to(b);
+}
+function setBothColors(p, s) {
+  if (p) { $("icon-color").value = p; $("icon-color-text").value = p; }
+  if (s !== null && s !== undefined) {
+    if (s) { $("icon-color2").value = s; $("icon-color2-text").value = s; }
+    else { $("icon-color2-text").value = ""; }
+  }
+}
+$("palette-mono").onclick = () => {
+  const p = $("icon-color-text").value.trim() || "#6aa6ff";
+  setBothColors(p, "");
+};
+$("palette-complement").onclick = () => {
+  const p = $("icon-color-text").value.trim() || "#6aa6ff";
+  if (!/^#[0-9a-fA-F]{6}$/.test(p)) return toast("主色格式不对", "error");
+  const [h, s, l] = hexToHsl(p);
+  setBothColors(p, hslToHex(h + 180, s, l));
+};
+$("palette-analog").onclick = () => {
+  const p = $("icon-color-text").value.trim() || "#6aa6ff";
+  if (!/^#[0-9a-fA-F]{6}$/.test(p)) return toast("主色格式不对", "error");
+  const [h, s, l] = hexToHsl(p);
+  setBothColors(p, hslToHex(h + 30, s, l));
+};
+$("palette-shuffle").onclick = () => {
+  const h = Math.floor(Math.random() * 360);
+  const p = hslToHex(h, 0.65, 0.6);
+  const s = hslToHex(h + (Math.random() < 0.5 ? 150 : 30), 0.6, 0.55);
+  setBothColors(p, s);
+};
 // 笔画调节
 $("icon-stroke").addEventListener("input", (e) => { $("stroke-val").textContent = parseFloat(e.target.value).toFixed(1); });
 // 库切换时更新提示 + 笔画可见性

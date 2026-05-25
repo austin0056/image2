@@ -215,7 +215,9 @@ async def api_generate_icon(
     access_key: str = Form(...),
     prompt: str = Form(...),
     library: str = Form("lucide"),
-    color: str = Form(""),
+    color: str = Form(""),                    # 兼容旧字段
+    color_primary: str = Form(""),
+    color_secondary: str = Form(""),
     stroke_width: float | None = Form(default=None),
 ) -> dict[str, Any]:
     user = await require_user(access_key)
@@ -224,14 +226,17 @@ async def api_generate_icon(
         raise HTTPException(400, "prompt 不能为空")
     if library not in ALLOWED_ICON_LIBRARIES:
         raise HTTPException(400, f"library 必须是 {sorted(ALLOWED_ICON_LIBRARIES)} 之一")
-    color = (color or "").strip()[:32]
+    # 新旧字段兼容：新发 color_primary > 旧发 color
+    primary = (color_primary or color or "").strip()[:32]
+    secondary = (color_secondary or "").strip()[:32]
     if stroke_width is not None and not (0.5 <= stroke_width <= 8.0):
         raise HTTPException(400, "stroke_width 范围 0.5–8")
 
-    # 存下风格描述方便后续查
     style_label = library
-    if color:
-        style_label += f" {color}"
+    if primary:
+        style_label += f" P{primary}"
+    if secondary:
+        style_label += f" S{secondary}"
     if stroke_width:
         style_label += f" sw{stroke_width}"
 
@@ -248,10 +253,11 @@ async def api_generate_icon(
         raise HTTPException(402, "余额不足")
 
     try:
-        svg = await upstream_claude.generate_icon_svg(
+        svg, warnings = await upstream_claude.generate_icon_svg(
             prompt,
             library=library,
-            color=color,
+            color_primary=primary,
+            color_secondary=secondary,
             stroke_width=stroke_width,
         )
         await db.mark_success_svg(gen_id, svg)
@@ -259,6 +265,7 @@ async def api_generate_icon(
             "generation_id": gen_id,
             "result_url": f"/icons/{gen_id}.svg",
             "balance_cents": balance_after,
+            "warnings": warnings,
         }
     except upstream_claude.ClaudeError as e:
         log.warning("generate-icon 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
