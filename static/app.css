@@ -802,10 +802,10 @@ table.data .mono { font-family: var(--font-mono); font-size: 12px; }
 .modal-mask {
   position: fixed; inset: 0; z-index: 300;
   background: rgba(15, 18, 24, 0.55); backdrop-filter: blur(6px);
-  display: flex; align-items: center; justify-content: center;
+  display: flex !important; align-items: center; justify-content: center;
   animation: fade-in .18s ease-out;
 }
-.modal-mask.hidden { display: none; }
+.modal-mask.hidden { display: none !important; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .modal-card {
   width: 480px; max-width: calc(100vw - 32px);
