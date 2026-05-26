@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260526c" />
+<link rel="stylesheet" href="/static/app.css?v=20260526d" />
 </head>
 <body>
 
@@ -554,14 +554,21 @@ function showImageResult(url) {
   $("result-card").style.cssText = "";
   const wrap = $("result-wrap");
   wrap.className = "";
-  wrap.innerHTML = `<img src="${url}" />`;
+  // 让图片 onload 后拿到真实尺寸写到信息栏
+  wrap.innerHTML = `<img src="${url}" alt="generated" />`;
+  const img = wrap.querySelector("img");
+  img.addEventListener("load", () => {
+    const w = img.naturalWidth, h = img.naturalHeight;
+    $("result-info").textContent = `${w} × ${h} px`;
+  });
   $("download-link").href = url;
   $("download-link").download = "image.png";
+  $("download-link").textContent = "↓ 下载图片";
   $("download-link").classList.remove("hidden");
   ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.add("hidden"));
   $("size-toolbar").style.display = "none";
   $("svg-source").classList.add("hidden");
-  $("result-info").textContent = "";
+  $("result-info").textContent = "加载中…";
   $("canvas-foot").classList.remove("hidden");
   applyResultBg();
 }
