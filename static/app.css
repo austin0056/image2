@@ -569,7 +569,8 @@ input[type="range"] {
   max-width: 90%; max-height: 100%;
 }
 .result-frame.icon-mode {
-  width: 480px; height: 480px;
+  width: var(--frame-size, 420px);
+  height: var(--frame-size, 420px);
 }
 .result-frame img, .result-frame svg {
   max-width: 100%; max-height: 100%;
