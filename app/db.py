@@ -370,6 +370,63 @@ async def list_user_payments(user_id: int, limit: int = 20) -> list[dict[str, An
     return [dict(r) for r in rows]
 
 
+async def list_user_ledger(
+    user_id: int,
+    limit: int = 50,
+    type_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """用户账户流水：联合 generations + payments 统一返回。
+
+    返回字段：
+      kind:        recharge | consume | refund
+      status:      success(已到账/已扣费) | pending | failed | expired
+      delta_cents: 有符号，+为入账 -为出账，pending 为 0
+      title / sub: 用于前端展示的主、次文本
+      ref_id:      源表 id
+      ref_no:      订单号（仅 recharge）
+    """
+    # type_filter 可选 'recharge' / 'consume_refund'
+    pay_where = "" if type_filter not in ("consume", "consume_refund") else "AND 1=0"
+    gen_where = "" if type_filter not in ("recharge",) else "AND 1=0"
+
+    sql = f"""
+        SELECT * FROM (
+          SELECT 'recharge' AS kind,
+                 id          AS ref_id,
+                 out_trade_no AS ref_no,
+                 amount_cents,
+                 status,
+                 pay_type,
+                 created_at  AS occur_at,
+                 paid_at,
+                 NULL::TEXT  AS prompt,
+                 NULL::TEXT  AS gen_kind
+          FROM payments
+          WHERE user_id=$1 {pay_where}
+
+          UNION ALL
+
+          SELECT CASE WHEN status='failed' THEN 'refund' ELSE 'consume' END AS kind,
+                 id           AS ref_id,
+                 NULL::VARCHAR AS ref_no,
+                 cost_cents   AS amount_cents,
+                 status,
+                 NULL::VARCHAR AS pay_type,
+                 created_at   AS occur_at,
+                 NULL::TIMESTAMPTZ AS paid_at,
+                 prompt,
+                 kind         AS gen_kind
+          FROM generations
+          WHERE user_id=$1 {gen_where}
+        ) t
+        ORDER BY occur_at DESC
+        LIMIT $2
+    """
+    async with pool().acquire() as con:
+        rows = await con.fetch(sql, user_id, limit)
+    return [dict(r) for r in rows]
+
+
 async def list_all_payments(
     limit: int = 100, status: str | None = None, key_prefix: str | None = None
 ) -> list[dict[str, Any]]:

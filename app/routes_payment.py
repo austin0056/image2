@@ -219,3 +219,65 @@ async def my_payments(
             for r in rows
         ]
     }
+
+
+# ---------- /api/ledger：账户流水（充值 + 消费 + 退款） ----------
+
+@router.get("/api/ledger")
+async def my_ledger(
+    limit: int = 50,
+    type: str | None = None,  # noqa: A002 兼容前端 query 名
+    user: dict = Depends(current_user),
+) -> dict:
+    """统一流水。type 可选 'recharge' 只看充值，'consume_refund' 只看消费/退款。"""
+    limit = max(1, min(limit, 200))
+    rows = await db.list_user_ledger(user["id"], limit=limit, type_filter=type)
+    items = []
+    for r in rows:
+        kind = r["kind"]
+        st = r["status"]
+        amt = int(r["amount_cents"])
+        # 计算有符号增减
+        if kind == "recharge":
+            delta = amt if st == "paid" else 0
+        elif kind == "refund":
+            delta = amt
+        else:  # consume
+            delta = -amt if st == "success" else (0 if st == "pending" else 0)
+        # 标题
+        if kind == "recharge":
+            title = "余额充值"
+            if st == "paid":
+                sub = "已到账"
+            elif st == "pending":
+                sub = "待支付"
+            elif st == "expired":
+                sub = "已过期（30 分钟未付款）"
+            else:
+                sub = st
+        elif kind == "refund":
+            title = "失败退款"
+            sub = (r.get("prompt") or "")[:60]
+        else:  # consume
+            gk = r.get("gen_kind") or "image"
+            title = "图标生成" if gk == "icon" else "图片生成"
+            if st == "success":
+                sub = (r.get("prompt") or "")[:60]
+            elif st == "pending":
+                sub = "生成中…"
+            else:
+                sub = st
+        items.append({
+            "kind": kind,
+            "status": st,
+            "delta_cents": delta,
+            "amount_cents": amt,
+            "title": title,
+            "sub": sub,
+            "ref_id": r["ref_id"],
+            "ref_no": r.get("ref_no") or "",
+            "pay_type": r.get("pay_type") or "",
+            "occur_at": r["occur_at"].isoformat() if r["occur_at"] else None,
+            "paid_at": r["paid_at"].isoformat() if r.get("paid_at") else None,
+        })
+    return {"items": items}

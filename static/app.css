@@ -678,6 +678,118 @@ input[type="range"] {
   font-weight: 500;
 }
 
+/* 账户流水 ============================================ */
+.ledger-filters {
+  display: flex; gap: 6px; padding: 0 var(--s-3);
+  margin-bottom: var(--s-2); flex-shrink: 0;
+}
+.ledger-chip {
+  border: 1px solid var(--c-line); background: var(--c-surface);
+  padding: 5px 12px; border-radius: var(--r-pill);
+  font-size: 11.5px; color: var(--c-text-2);
+  cursor: pointer; transition: all var(--t-fast);
+}
+.ledger-chip:hover { border-color: var(--c-text-mute); color: var(--c-text); }
+.ledger-chip.active {
+  background: var(--c-text); color: var(--c-surface);
+  border-color: var(--c-text);
+}
+
+.ledger-summary {
+  display: flex; gap: 8px; padding: 10px 12px; margin: 0 var(--s-3) var(--s-2);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg,
+    var(--c-surface-sunken) 0%,
+    var(--c-surface) 100%);
+  border: 1px solid var(--c-line);
+}
+.ledger-summary:empty { display: none; }
+.led-stat { flex: 1; min-width: 0; }
+.led-stat-label { display: block; font-size: 10.5px; color: var(--c-text-mute); }
+.led-stat-val {
+  display: block; font-family: var(--font-mono);
+  font-size: 15px; font-weight: 600; margin-top: 2px;
+}
+.led-stat-val.income { color: #16A34A; }
+.led-stat-val.expense { color: var(--c-text-2); }
+
+.led-day {
+  font-size: 11px; font-weight: 500; color: var(--c-text-mute);
+  padding: 10px 6px 4px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.led-day:first-of-type { padding-top: 0; }
+
+.led-item {
+  display: grid; grid-template-columns: 32px 1fr auto;
+  align-items: center; gap: 10px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--c-line);
+  transition: background var(--t-fast);
+}
+.led-item:hover { background: var(--c-surface-sunken); }
+.led-item:last-child { border-bottom: 0; }
+
+.led-icon {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--c-surface-sunken); color: var(--c-text-2);
+  flex-shrink: 0;
+}
+.led-icon svg { width: 16px; height: 16px; }
+
+.led-item.is-recharge .led-icon {
+  background: rgba(22,163,74,.12); color: #16A34A;
+}
+.led-item.is-recharge.status-pending .led-icon {
+  background: rgba(217,119,6,.12); color: #D97706;
+}
+.led-item.is-recharge.status-expired .led-icon {
+  background: var(--c-surface-sunken); color: var(--c-text-mute);
+}
+.led-item.is-consume .led-icon {
+  background: rgba(255,92,44,.10); color: var(--c-brand-2, #FF5C2C);
+}
+.led-item.is-refund .led-icon {
+  background: rgba(140,59,255,.10); color: #8C3BFF;
+}
+
+.led-body { min-width: 0; }
+.led-title-row {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--c-text); font-weight: 500;
+}
+.led-sub {
+  font-size: 11px; color: var(--c-text-mute); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.led-amt {
+  font-family: var(--font-mono); font-weight: 600;
+  font-size: 14px; white-space: nowrap;
+}
+.led-item.income .led-amt   { color: #16A34A; }
+.led-item.expense .led-amt  { color: var(--c-text); }
+.led-item.neutral .led-amt  { color: var(--c-text-mute); }
+.led-item.status-expired .led-amt { color: var(--c-text-mute); text-decoration: line-through; }
+.led-item.status-failed .led-amt  { color: var(--c-text-mute); text-decoration: line-through; }
+
+.led-resume {
+  border: 0; background: rgba(255,92,44,.08);
+  color: var(--c-brand-2, #FF5C2C);
+  padding: 2px 8px; border-radius: var(--r-pill);
+  font-size: 10.5px; cursor: pointer;
+  transition: background var(--t-fast);
+}
+.led-resume:hover { background: rgba(255,92,44,.16); }
+.led-tag {
+  font-size: 10.5px; padding: 2px 8px; border-radius: var(--r-pill);
+  background: var(--c-surface-sunken); color: var(--c-text-mute);
+}
+.led-tag.pending-tag { background: rgba(217,119,6,.12); color: #D97706; }
+.led-tag.refund-tag { background: rgba(140,59,255,.10); color: #8C3BFF; }
+
 /* 充值记录列表 ============================================ */
 .pay-empty {
   display: flex; flex-direction: column; align-items: center;
