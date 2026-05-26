@@ -508,17 +508,14 @@ input[type="range"] {
   flex: 1; min-height: 0; overflow: auto;
   display: flex; align-items: center; justify-content: center;
   padding: var(--s-8);
-  background:
-    linear-gradient(var(--c-canvas), var(--c-canvas)),
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='10' height='10' fill='%23F1F2F5'/><rect x='10' y='10' width='10' height='10' fill='%23F1F2F5'/></svg>");
+  background: var(--c-canvas);
 }
 .canvas-stage.bg-dark {
-  background:
-    linear-gradient(#1A1D24, #1A1D24);
+  background: #1A1D24;
 }
 .canvas-stage.bg-checker {
-  background:
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='10' height='10' fill='%23F1F2F5'/><rect x='10' y='10' width='10' height='10' fill='%23F1F2F5'/></svg>");
+  background-color: #fff;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='10' height='10' fill='%23E8EAEE'/><rect x='10' y='10' width='10' height='10' fill='%23E8EAEE'/></svg>");
 }
 
 .empty-state {
@@ -578,9 +575,13 @@ input[type="range"] {
   max-width: 100%; max-height: 100%;
   display: block;
 }
-.result-frame.bg-dark { background: #1A1D24; }
+.result-frame.bg-dark {
+  background: #1A1D24;
+  box-shadow: 0 12px 40px rgba(0,0,0,.35);
+}
 .result-frame.bg-checker {
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='8' height='8' fill='%23E6E8EC'/><rect x='8' y='8' width='8' height='8' fill='%23E6E8EC'/></svg>");
+  background-color: #fff;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='8' height='8' fill='%23E8EAEE'/><rect x='8' y='8' width='8' height='8' fill='%23E8EAEE'/></svg>");
 }
 
 /* 底部信息栏 */

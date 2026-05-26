@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260526a" />
+<link rel="stylesheet" href="/static/app.css?v=20260526b" />
 </head>
 <body>
 
@@ -575,7 +575,17 @@ function showSvgResult(svgText, downloadName) {
   $("result-card").style.cssText = "";
   const wrap = $("result-wrap");
   wrap.className = "";
-  wrap.innerHTML = `<img src="${url}" />`;
+  // 直接嵌入 SVG。避免 <img blob:> 可能被浏览器拦截。
+  wrap.innerHTML = svgText;
+  // 让嵌入的 svg 填满容器
+  const innerSvg = wrap.querySelector("svg");
+  if (innerSvg) {
+    innerSvg.setAttribute("width", "100%");
+    innerSvg.setAttribute("height", "100%");
+    innerSvg.style.maxWidth = "100%";
+    innerSvg.style.maxHeight = "100%";
+    innerSvg.style.display = "block";
+  }
   $("download-link").href = url;
   $("download-link").download = downloadName + ".svg";
   $("download-link").textContent = "↓ 下载 SVG";
@@ -606,10 +616,15 @@ function applyPreviewSize(px) {
 function applyResultBg() {
   const active = document.querySelector(".preview-bg.active");
   const kind = active ? active.dataset.bg : "light";
+  const stage = $("canvas-stage");
   const card = $("result-card");
-  card.classList.remove("bg-dark","bg-checker");
-  if (kind === "dark") card.classList.add("bg-dark");
-  else if (kind === "checker") card.classList.add("bg-checker");
+  // 背景作用在画布和结果卡两者上
+  [stage, card].forEach((el) => {
+    if (!el) return;
+    el.classList.remove("bg-dark", "bg-checker");
+    if (kind === "dark") el.classList.add("bg-dark");
+    else if (kind === "checker") el.classList.add("bg-checker");
+  });
 }
 
 /* ===================== 生图 ===================== */
