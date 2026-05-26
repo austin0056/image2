@@ -229,55 +229,77 @@ async def my_ledger(
     type: str | None = None,  # noqa: A002 兼容前端 query 名
     user: dict = Depends(current_user),
 ) -> dict:
-    """统一流水。type 可选 'recharge' 只看充值，'consume_refund' 只看消费/退款。"""
+    """统一流水。type 可选 'all' / 'recharge' / 'consume_refund'。
+
+    返回：
+      items: 按 occur_at 倒序的条目。后端只返结构化字段，展示由前端决定。
+      summary: 当前筛选范围内的汇总（income / expense / pending_in 三个总额）。
+      filter: 实际生效的 type。
+      truncated: 是否达到 limit 上限。
+    """
     limit = max(1, min(limit, 200))
     rows = await db.list_user_ledger(user["id"], limit=limit, type_filter=type)
     items = []
+    income = 0
+    expense = 0
+    pending_in = 0
     for r in rows:
         kind = r["kind"]
         st = r["status"]
         amt = int(r["amount_cents"])
-        # 计算有符号增减
+        # 方向与增减
         if kind == "recharge":
-            delta = amt if st == "paid" else 0
-        elif kind == "refund":
-            delta = amt
-        else:  # consume
-            delta = -amt if st == "success" else (0 if st == "pending" else 0)
-        # 标题
-        if kind == "recharge":
-            title = "余额充值"
             if st == "paid":
-                sub = "已到账"
+                direction = "in"
+                delta = amt
+                income += amt
             elif st == "pending":
-                sub = "待支付"
-            elif st == "expired":
-                sub = "已过期（30 分钟未付款）"
-            else:
-                sub = st
+                direction = "none"
+                delta = 0
+                pending_in += amt
+            else:  # expired / failed / unknown
+                direction = "none"
+                delta = 0
         elif kind == "refund":
-            title = "失败退款"
-            sub = (r.get("prompt") or "")[:60]
+            direction = "in"
+            delta = amt
+            income += amt
         else:  # consume
-            gk = r.get("gen_kind") or "image"
-            title = "图标生成" if gk == "icon" else "图片生成"
             if st == "success":
-                sub = (r.get("prompt") or "")[:60]
-            elif st == "pending":
-                sub = "生成中…"
-            else:
-                sub = st
+                direction = "out"
+                delta = -amt
+                expense += amt
+            else:  # pending / failed (不应出现这里，failed 已被划到 refund)
+                direction = "none"
+                delta = 0
         items.append({
             "kind": kind,
             "status": st,
-            "delta_cents": delta,
+            "direction": direction,
             "amount_cents": amt,
-            "title": title,
-            "sub": sub,
+            "delta_cents": delta,
             "ref_id": r["ref_id"],
             "ref_no": r.get("ref_no") or "",
             "pay_type": r.get("pay_type") or "",
+            "prompt": r.get("prompt") or "",
+            "gen_kind": r.get("gen_kind") or "",
+            "error": (r.get("error") or "")[:200],
+            "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
             "occur_at": r["occur_at"].isoformat() if r["occur_at"] else None,
             "paid_at": r["paid_at"].isoformat() if r.get("paid_at") else None,
         })
-    return {"items": items}
+    actual_filter = (type or "all").lower()
+    if actual_filter not in ("all", "recharge", "consume_refund"):
+        actual_filter = "all"
+    return {
+        "items": items,
+        "summary": {
+            "income_cents": income,
+            "expense_cents": expense,
+            "pending_in_cents": pending_in,
+            "count": len(items),
+        },
+        "filter": actual_filter,
+        "limit": limit,
+        "truncated": len(items) >= limit,
+    }

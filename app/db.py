@@ -384,42 +384,56 @@ async def list_user_ledger(
       title / sub: 用于前端展示的主、次文本
       ref_id:      源表 id
       ref_no:      订单号（仅 recharge）
+
+    type_filter: None / 'all' / 'recharge' / 'consume_refund'
+    任何未识别值与 None 等价，返回全部。
     """
-    # type_filter 可选 'recharge' / 'consume_refund'
-    pay_where = "" if type_filter not in ("consume", "consume_refund") else "AND 1=0"
-    gen_where = "" if type_filter not in ("recharge",) else "AND 1=0"
+    tf = (type_filter or "all").strip().lower()
+    if tf not in ("all", "recharge", "consume_refund"):
+        tf = "all"
 
+    # 按过滤器选择调用哪些子查询。避免 SQL 拼接，改用参数化 + 代码分支。
+    sql_payments = """
+        SELECT 'recharge'::TEXT       AS kind,
+               id                     AS ref_id,
+               out_trade_no           AS ref_no,
+               amount_cents,
+               status,
+               pay_type,
+               COALESCE(paid_at, created_at) AS occur_at,
+               created_at,
+               paid_at,
+               NULL::TEXT             AS prompt,
+               NULL::TEXT             AS gen_kind,
+               NULL::TEXT             AS error
+        FROM payments
+        WHERE user_id=$1
+    """
+    sql_generations = """
+        SELECT CASE WHEN status='failed' THEN 'refund' ELSE 'consume' END AS kind,
+               id                     AS ref_id,
+               NULL::VARCHAR          AS ref_no,
+               cost_cents             AS amount_cents,
+               status,
+               NULL::VARCHAR          AS pay_type,
+               created_at             AS occur_at,
+               created_at,
+               NULL::TIMESTAMPTZ      AS paid_at,
+               prompt,
+               kind                   AS gen_kind,
+               error
+        FROM generations
+        WHERE user_id=$1
+    """
+    if tf == "recharge":
+        body = sql_payments
+    elif tf == "consume_refund":
+        body = sql_generations
+    else:
+        body = f"{sql_payments}\nUNION ALL\n{sql_generations}"
     sql = f"""
-        SELECT * FROM (
-          SELECT 'recharge' AS kind,
-                 id          AS ref_id,
-                 out_trade_no AS ref_no,
-                 amount_cents,
-                 status,
-                 pay_type,
-                 created_at  AS occur_at,
-                 paid_at,
-                 NULL::TEXT  AS prompt,
-                 NULL::TEXT  AS gen_kind
-          FROM payments
-          WHERE user_id=$1 {pay_where}
-
-          UNION ALL
-
-          SELECT CASE WHEN status='failed' THEN 'refund' ELSE 'consume' END AS kind,
-                 id           AS ref_id,
-                 NULL::VARCHAR AS ref_no,
-                 cost_cents   AS amount_cents,
-                 status,
-                 NULL::VARCHAR AS pay_type,
-                 created_at   AS occur_at,
-                 NULL::TIMESTAMPTZ AS paid_at,
-                 prompt,
-                 kind         AS gen_kind
-          FROM generations
-          WHERE user_id=$1 {gen_where}
-        ) t
-        ORDER BY occur_at DESC
+        SELECT * FROM ({body}) t
+        ORDER BY occur_at DESC NULLS LAST, ref_id DESC
         LIMIT $2
     """
     async with pool().acquire() as con:

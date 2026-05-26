@@ -10,6 +10,26 @@
 <link rel="stylesheet" href="/static/app.css?v=20260526g" />
 </head>
 <body>
+<!-- SVG sprite: 账户流水使用 -->
+<svg width="0" height="0" style="position:absolute;" aria-hidden="true">
+  <defs>
+    <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 19V5M5 12l7-7 7 7"/>
+    </symbol>
+    <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 5v14M5 12l7 7 7-7"/>
+    </symbol>
+    <symbol id="i-refund" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>
+    </symbol>
+    <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h18M3 12h18M3 18h12"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 8l3.5 3.5L13 5"/>
+    </symbol>
+  </defs>
+</svg>
 
 <!-- =============== Login =============== -->
 <div id="login" class="login-shell">
@@ -410,6 +430,15 @@ let priceRecraftCents = 300;
 
 const $ = (id) => document.getElementById(id);
 
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function toast(msg, type = "") {
   const el = $("toast");
   el.textContent = msg;
@@ -543,6 +572,7 @@ async function refreshLedger() {
   if (summary) summary.innerHTML = "";
   if (empty) { empty.style.display = ""; empty.textContent = "加载中…"; }
   try {
+    if (empty) empty.style.color = "";
     const qs = ledgerFilter === "all" ? "" : "?type=" + ledgerFilter;
     const data = await api("/api/ledger" + qs);
     if (!data.items.length) {
@@ -609,6 +639,21 @@ function renderLedgerItem(it) {
   const t = formatPayTime(it.occur_at);
   const tFull = (it.occur_at || "").replace("T", " ").slice(0, 19);
   const icon = ledgerIcon(it.kind);
+
+  // 根据 kind 构造 title / sub（后端不返回这两个字段）
+  let title = "";
+  let sub = "";
+  if (it.kind === "recharge") {
+    title = "余额充值";
+    sub = it.pay_type ? (it.pay_type === "alipay" ? "支付宝" : it.pay_type) : "支付宝";
+  } else if (it.kind === "consume") {
+    title = it.gen_kind === "icon" ? "图标生成" : "图片生成";
+    sub = (it.prompt || "").slice(0, 40);
+  } else if (it.kind === "refund") {
+    title = "生成失败退款";
+    sub = (it.error || "").slice(0, 40);
+  }
+
   let action = "";
   if (it.kind === "recharge" && it.status === "pending") {
     action = `<button class="led-resume" data-no="${it.ref_no}" data-cents="${it.amount_cents}">查询状态</button>`;
@@ -619,15 +664,15 @@ function renderLedgerItem(it) {
   } else if (it.kind === "refund") {
     action = `<span class="led-tag refund-tag">退款</span>`;
   }
-  const subSafe = escapeHtml(it.sub || "");
+  const subSafe = escapeHtml(sub);
   div.innerHTML = `
     <div class="led-icon">${icon}</div>
     <div class="led-body">
       <div class="led-title-row">
-        <span class="led-title">${escapeHtml(it.title)}</span>
+        <span class="led-title">${escapeHtml(title)}</span>
         ${action}
       </div>
-      <div class="led-sub" title="${tFull}">${subSafe ? subSafe + ' · ' : ''}${t}</div>
+      <div class="led-sub" title="${tFull}">${subSafe ? subSafe + " · " : ""}${t}</div>
     </div>
     <div class="led-amt">${deltaStr}</div>
   `;
@@ -1204,6 +1249,8 @@ function updateRechargeTotal() {
     "¥" + (rechargeAmountCents / 100).toFixed(2);
 }
 
+let rechargeConfig = null;
+
 async function openRecharge() {
   if (!accessKey) { toast("请先登录", "error"); return; }
   try {
@@ -1220,6 +1267,7 @@ async function openRecharge() {
       );
       return;
     }
+    rechargeConfig = data;
     renderAmountGrid(data.presets_yuan);
     updateRechargeTotal();
     $("recharge-modal").classList.remove("hidden");
@@ -1245,8 +1293,10 @@ $("amount-custom").addEventListener("input", (e) => {
 
 $("recharge-submit").onclick = async () => {
   const yuan = rechargeAmountCents / 100;
-  if (yuan < 1 || yuan > 1000) {
-    toast("金额范围 ¥1 — ¥1000", "error"); return;
+  const minYuan = rechargeConfig ? rechargeConfig.min_yuan : 1;
+  const maxYuan = rechargeConfig ? rechargeConfig.max_yuan : 1000;
+  if (yuan < minYuan || yuan > maxYuan) {
+    toast(`金额范围 ¥${minYuan} — ¥${maxYuan}`, "error"); return;
   }
   const btn = $("recharge-submit");
   btn.disabled = true;
@@ -1269,14 +1319,15 @@ $("recharge-submit").onclick = async () => {
 
 /* 轮询 */
 function startWatching(outTradeNo) {
+  if (rechargeWatchTimer) { clearTimeout(rechargeWatchTimer); rechargeWatchTimer = null; }
   $("rw-id").textContent = outTradeNo.length > 16
     ? outTradeNo.slice(0, 8) + "…" + outTradeNo.slice(-4)
     : outTradeNo;
   $("recharge-watcher").classList.remove("hidden");
   let elapsed = 0;
   const tick = async () => {
-    if (elapsed > 300) {
-      stopWatching(); toast("超时未收到付款，如已付款请联系管理员", "error");
+    if (elapsed >= 300) {
+      stopWatching(); sessionStorage.removeItem("image2_pending_pay"); toast("超时未收到付款，如已付款请联系管理员", "error");
       return;
     }
     try {
