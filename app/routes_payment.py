@@ -185,3 +185,29 @@ async def recharge_presets() -> dict:
         "max_yuan": settings.recharge_max_cents / 100,
         "enabled": bool(settings.zpay_pid and settings.zpay_key and settings.public_base_url),
     }
+
+
+# ---------- /api/payments：用户充值历史 ----------
+
+@router.get("/api/payments")
+async def my_payments(access_key: str, limit: int = 50) -> dict:
+    user = await db.get_user_by_key(access_key)
+    if not user:
+        raise HTTPException(401, "未登录")
+    limit = max(1, min(limit, 200))
+    rows = await db.list_user_payments(user["id"], limit=limit)
+    return {
+        "items": [
+            {
+                "id": r["id"],
+                "out_trade_no": r["out_trade_no"],
+                "trade_no": r["trade_no"] or "",
+                "amount_cents": r["amount_cents"],
+                "status": r["status"],
+                "pay_type": r["pay_type"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None,
+            }
+            for r in rows
+        ]
+    }

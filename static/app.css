@@ -660,6 +660,55 @@ input[type="range"] {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .h-item .info .meta { font-size: 11px; color: var(--c-text-mute); margin-top: 2px; }
 
+/* 抽屉 Tab */
+.history-drawer .hd-tabs {
+  display: flex; gap: 2px; padding: 6px; margin: 0 var(--s-3);
+  border-radius: var(--r-md); background: var(--c-surface-sunken);
+  flex-shrink: 0;
+}
+.history-drawer .hd-tab {
+  flex: 1; height: 30px; border: 0; background: transparent;
+  font-size: 12.5px; color: var(--c-text-2); border-radius: 6px;
+  cursor: pointer; transition: all var(--t-fast);
+}
+.history-drawer .hd-tab:hover { color: var(--c-text); }
+.history-drawer .hd-tab.active {
+  background: var(--c-surface); color: var(--c-text);
+  box-shadow: var(--shadow-1);
+  font-weight: 500;
+}
+
+/* 充值记录列表 */
+.pay-item {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; gap: var(--s-3);
+  padding: 10px 8px; border-radius: var(--r-md);
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+}
+.pay-item .pay-amt {
+  font-family: var(--font-mono); font-size: 16px; font-weight: 600;
+  color: var(--c-text);
+}
+.pay-item .pay-meta { min-width: 0; }
+.pay-item .pay-no {
+  font-family: var(--font-mono); font-size: 11px; color: var(--c-text-mute);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pay-item .pay-time {
+  font-size: 11px; color: var(--c-text-mute); margin-top: 2px;
+}
+.pay-item .pay-status {
+  font-size: 11px; padding: 3px 8px; border-radius: var(--r-pill);
+  font-weight: 500;
+}
+.pay-item .pay-status.ok {
+  background: rgba(22,163,74,.12); color: #16A34A;
+}
+.pay-item .pay-status.pending {
+  background: rgba(217,119,6,.12); color: #D97706;
+}
+
 /* ============================================================
    Login Page
    ============================================================ */

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260526d" />
+<link rel="stylesheet" href="/static/app.css?v=20260526e" />
 </head>
 <body>
 
@@ -328,11 +328,18 @@
   <!-- 历史抽屉 -->
   <aside class="history-drawer" id="history-drawer">
     <div class="hd-head">
-      <div class="hd-title">生成历史</div>
+      <div class="hd-title">活动记录</div>
       <button class="btn ghost small" id="close-history">×</button>
     </div>
-    <div class="hd-list" id="history">
+    <div class="hd-tabs">
+      <button class="hd-tab active" data-htab="gen">生成</button>
+      <button class="hd-tab" data-htab="pay">充值记录</button>
+    </div>
+    <div class="hd-list" id="history" data-pane="gen">
       <div class="dim" id="history-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">还没有生成记录</div>
+    </div>
+    <div class="hd-list hidden" id="payments" data-pane="pay">
+      <div class="dim" id="payments-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">加载中…</div>
     </div>
   </aside>
 </div>
@@ -510,6 +517,38 @@ async function refreshHistory() {
       box.appendChild(div);
     }
   } catch {}
+}
+
+async function refreshPayments() {
+  const box = $("payments");
+  if (!box) return;
+  try {
+    const data = await api("/api/payments?access_key=" + encodeURIComponent(accessKey));
+    box.innerHTML = "";
+    if (!data.items.length) {
+      box.innerHTML = '<div class="dim" style="text-align:center;padding:40px 20px;font-size:12.5px;">暂无充值记录</div>';
+      return;
+    }
+    for (const p of data.items) {
+      const div = document.createElement("div");
+      div.className = "pay-item";
+      const yuan = (p.amount_cents / 100).toFixed(2);
+      const t = p.created_at ? p.created_at.replace("T", " ").slice(0, 16) : "";
+      const statusLabel = p.status === "paid" ? "已付款" : "待付款";
+      const statusCls = p.status === "paid" ? "ok" : "pending";
+      div.innerHTML = `
+        <div class="pay-amt">¥${yuan}</div>
+        <div class="pay-meta">
+          <div class="pay-no" title="${p.out_trade_no}">${p.out_trade_no}</div>
+          <div class="pay-time">${t}</div>
+        </div>
+        <span class="pay-status ${statusCls}">${statusLabel}</span>
+      `;
+      box.appendChild(div);
+    }
+  } catch (e) {
+    box.innerHTML = '<div class="dim" style="text-align:center;padding:40px 20px;color:var(--c-danger);">加载失败</div>';
+  }
 }
 
 /* ===================== Dropzone ===================== */
@@ -964,8 +1003,26 @@ document.querySelectorAll(".empty-state .ex").forEach((b) => {
 });
 
 // 历史抽屉
-$("open-history").onclick = () => $("history-drawer").classList.toggle("open");
+$("open-history").onclick = () => {
+  const drawer = $("history-drawer");
+  drawer.classList.toggle("open");
+  if (drawer.classList.contains("open")) {
+    // 打开时主动刷两边
+    refreshHistory();
+    refreshPayments();
+  }
+};
 $("close-history").onclick = () => $("history-drawer").classList.remove("open");
+document.querySelectorAll(".hd-tab").forEach((t) => {
+  t.onclick = () => {
+    document.querySelectorAll(".hd-tab").forEach((x) => x.classList.remove("active"));
+    t.classList.add("active");
+    const which = t.dataset.htab;
+    $("history").classList.toggle("hidden", which !== "gen");
+    $("payments").classList.toggle("hidden", which !== "pay");
+    if (which === "pay") refreshPayments();
+  };
+});
 
 /* ===================== 充值 ===================== */
 let rechargeAmountCents = 1000; // 默认 ¥10
@@ -1079,6 +1136,7 @@ function startWatching(outTradeNo) {
         sessionStorage.removeItem("image2_pending_pay");
         toast(`充值成功 ¥${(r.amount_cents / 100).toFixed(2)}`, "success");
         await refreshMe();
+        refreshPayments();
         return;
       }
     } catch (e) { /* 静默，下一轮再试 */ }

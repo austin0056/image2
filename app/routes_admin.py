@@ -60,7 +60,40 @@ async def admin_me() -> dict[str, Any]:
 
 @router.get("/api/admin/stats", dependencies=[Depends(require_admin)])
 async def admin_stats() -> dict[str, Any]:
-    return await db.admin_stats()
+    base = await db.admin_stats()
+    pay = await db.admin_payment_stats()
+    base.update(pay)
+    return base
+
+
+@router.get("/api/admin/payments", dependencies=[Depends(require_admin)])
+async def admin_payments(
+    limit: int = 100,
+    status: str | None = None,
+    key: str | None = None,
+) -> dict[str, Any]:
+    limit = max(1, min(limit, 500))
+    if status and status not in ("pending", "paid"):
+        status = None
+    rows = await db.list_all_payments(limit=limit, status=status, key_prefix=key)
+    return {
+        "items": [
+            {
+                "id": r["id"],
+                "out_trade_no": r["out_trade_no"],
+                "trade_no": r["trade_no"] or "",
+                "amount_cents": r["amount_cents"],
+                "status": r["status"],
+                "pay_type": r["pay_type"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None,
+                "user_id": r["user_id"],
+                "user_key_prefix": r["user_key_prefix"] or "",
+                "user_name": r["user_name"] or "",
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.get("/api/admin/users", dependencies=[Depends(require_admin)])

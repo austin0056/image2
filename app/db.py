@@ -366,6 +366,56 @@ async def list_user_payments(user_id: int, limit: int = 20) -> list[dict[str, An
     return [dict(r) for r in rows]
 
 
+async def list_all_payments(
+    limit: int = 100, status: str | None = None, key_prefix: str | None = None
+) -> list[dict[str, Any]]:
+    """管理端列出所有订单（含用户 access_key 前缀以便定位）。"""
+    where = []
+    args: list[Any] = []
+    if status:
+        args.append(status)
+        where.append(f"p.status=${len(args)}")
+    if key_prefix:
+        args.append(key_prefix + "%")
+        where.append(f"u.access_key LIKE ${len(args)}")
+    args.append(limit)
+    sql = (
+        "SELECT p.id, p.out_trade_no, p.trade_no, p.amount_cents, p.status, "
+        "p.pay_type, p.created_at, p.paid_at, p.user_id, "
+        "LEFT(u.access_key, 12) AS user_key_prefix, u.name AS user_name "
+        "FROM payments p LEFT JOIN users u ON u.id=p.user_id "
+    )
+    if where:
+        sql += "WHERE " + " AND ".join(where) + " "
+    sql += f"ORDER BY p.id DESC LIMIT ${len(args)}"
+    async with pool().acquire() as con:
+        rows = await con.fetch(sql, *args)
+    return [dict(r) for r in rows]
+
+
+async def admin_payment_stats() -> dict[str, Any]:
+    async with pool().acquire() as con:
+        total_paid = await con.fetchval(
+            "SELECT COALESCE(SUM(amount_cents),0) FROM payments WHERE status='paid'"
+        ) or 0
+        today_paid = await con.fetchval(
+            "SELECT COALESCE(SUM(amount_cents),0) FROM payments "
+            "WHERE status='paid' AND paid_at >= date_trunc('day', now())"
+        ) or 0
+        pending_cnt = await con.fetchval(
+            "SELECT COUNT(*) FROM payments WHERE status='pending'"
+        ) or 0
+        paid_cnt = await con.fetchval(
+            "SELECT COUNT(*) FROM payments WHERE status='paid'"
+        ) or 0
+    return {
+        "total_paid_cents": int(total_paid),
+        "today_paid_cents": int(today_paid),
+        "pending_count": int(pending_cnt),
+        "paid_count": int(paid_cnt),
+    }
+
+
 async def admin_stats() -> dict[str, Any]:
     async with pool().acquire() as con:
         users_total = await con.fetchval("SELECT COUNT(*) FROM users")
