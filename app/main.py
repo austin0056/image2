@@ -15,6 +15,7 @@ from .config import settings
 from .routes_admin import router as admin_router
 from .routes_user import router as user_router
 from .routes_payment import router as payment_router
+from .tasks import reaper_loop
 
 log = logging.getLogger("image2")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -51,7 +52,14 @@ async def lifespan(app: FastAPI):
         log.error("MinIO bucket 初始化失败: %s", e)
         raise
     log.info("启动完成")
+    reaper_task = asyncio.create_task(reaper_loop())
     yield
+    log.info("关闭: 取消后台任务")
+    reaper_task.cancel()
+    try:
+        await reaper_task
+    except asyncio.CancelledError:
+        pass
     log.info("关闭: 释放 DB 连接池")
     await db.close_pool()
 

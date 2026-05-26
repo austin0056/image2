@@ -1,18 +1,19 @@
 """用户侧 API。"""
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
 from . import db, storage, upstream, upstream_claude, upstream_recraft
 from .config import settings
-from .deps import require_user
+from .deps import current_user, require_user
 
 log = logging.getLogger("image2.user")
 router = APIRouter()
@@ -102,7 +103,7 @@ async def api_generate(
             raise HTTPException(400, "参考图超过 10MB")
         else:
             try:
-                ref_bytes = _normalize_ref(raw)
+                ref_bytes = await asyncio.to_thread(_normalize_ref, raw)
             except Exception as e:
                 raise HTTPException(400, f"参考图解析失败: {e}")
             ref_key = storage.make_key("refs")
@@ -149,8 +150,7 @@ async def api_generate(
 
 
 @router.get("/api/history")
-async def api_history(access_key: str = Query(...)) -> dict[str, Any]:
-    user = await require_user(access_key)
+async def api_history(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     rows = await db.list_history(user["id"], limit=30)
     out = []
     for r in rows:
@@ -177,10 +177,14 @@ async def api_history(access_key: str = Query(...)) -> dict[str, Any]:
 
 
 @router.get("/files/{kind}/{generation_id}")
-async def get_file(kind: str, generation_id: int, access_key: str = Query(...)):
+async def get_file(
+    kind: str,
+    generation_id: int,
+    user: dict[str, Any] = Depends(current_user),
+):
+    # 注：<img src> 无法加 Authorization 头，所以保留 access_key query 兼容
     if kind not in ("ref", "result"):
         raise HTTPException(404)
-    user = await require_user(access_key)
     gen = await db.get_generation(generation_id)
     if not gen or gen["user_id"] != user["id"]:
         raise HTTPException(404)
@@ -192,8 +196,10 @@ async def get_file(kind: str, generation_id: int, access_key: str = Query(...)):
 
 
 @router.delete("/api/generations/{generation_id}")
-async def api_delete_generation(generation_id: int, access_key: str = Query(...)) -> dict[str, Any]:
-    user = await require_user(access_key)
+async def api_delete_generation(
+    generation_id: int,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
     deleted = await db.delete_generation(generation_id, user_id=user["id"])
     if not deleted:
         raise HTTPException(404, "记录不存在或不属于你")
@@ -314,8 +320,10 @@ async def api_generate_icon(
 
 
 @router.get("/icons/{generation_id}.svg")
-async def get_icon_svg(generation_id: int, access_key: str = Query(...)):
-    user = await require_user(access_key)
+async def get_icon_svg(
+    generation_id: int,
+    user: dict[str, Any] = Depends(current_user),
+):
     gen = await db.get_generation(generation_id)
     if not gen or gen["user_id"] != user["id"] or not gen.get("result_svg"):
         raise HTTPException(404)

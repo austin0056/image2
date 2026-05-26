@@ -414,6 +414,13 @@ function toast(msg, type = "") {
 const fmtMoney = (cents) => "¥" + (cents / 100).toFixed(2);
 
 async function api(path, opts = {}) {
+  // 自动为需要鉴权的请求加 Authorization 头
+  if (accessKey && !opts.skipAuth) {
+    opts.headers = opts.headers || {};
+    if (!opts.headers.Authorization && !opts.headers.authorization) {
+      opts.headers.Authorization = "Bearer " + accessKey;
+    }
+  }
   const res = await fetch(path, opts);
   if (!res.ok) {
     let msg = res.statusText;
@@ -470,7 +477,7 @@ async function refreshMe() {
 /* ===================== History ===================== */
 async function refreshHistory() {
   try {
-    const data = await api("/api/history?access_key=" + encodeURIComponent(accessKey));
+    const data = await api("/api/history");
     const box = $("history");
     box.innerHTML = "";
     if (!data.items.length) {
@@ -508,8 +515,7 @@ async function refreshHistory() {
         e.stopPropagation();
         if (!confirm("删除这条记录？")) return;
         try {
-          await api(`/api/generations/${it.id}?access_key=` + encodeURIComponent(accessKey),
-                    { method: "DELETE" });
+          await api(`/api/generations/${it.id}`, { method: "DELETE" });
           refreshHistory();
         } catch (err) { toast("删除失败：" + err.message, "error"); }
       };
@@ -523,7 +529,7 @@ async function refreshPayments() {
   const box = $("payments");
   if (!box) return;
   try {
-    const data = await api("/api/payments?access_key=" + encodeURIComponent(accessKey));
+    const data = await api("/api/payments");
     box.innerHTML = "";
     if (!data.items.length) {
       box.innerHTML = '<div class="dim" style="text-align:center;padding:40px 20px;font-size:12.5px;">暂无充值记录</div>';
@@ -732,7 +738,9 @@ async function generateIcon() {
   try {
     const data = await api("/api/generate-icon", { method: "POST", body: fd });
     $("balance").textContent = fmtMoney(data.balance_cents);
-    const r = await fetch(data.result_url + "?access_key=" + encodeURIComponent(accessKey));
+    const r = await fetch(data.result_url, {
+      headers: { Authorization: "Bearer " + accessKey },
+    });
     const svg = await r.text();
     showSvgResult(svg, "icon-" + data.generation_id);
     if (data.samples && data.samples.length) {
@@ -1130,7 +1138,7 @@ function startWatching(outTradeNo) {
       return;
     }
     try {
-      const r = await api(`/api/payment/${outTradeNo}?access_key=` + encodeURIComponent(accessKey));
+      const r = await api(`/api/payment/${outTradeNo}`);
       if (r.status === "paid") {
         stopWatching();
         sessionStorage.removeItem("image2_pending_pay");

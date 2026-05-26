@@ -17,9 +17,13 @@ async def init_pool() -> None:
     if _pool is None:
         _pool = await asyncpg.create_pool(
             dsn=settings.database_url,
-            min_size=1,
+            min_size=2,
             max_size=10,
-            command_timeout=30,
+            command_timeout=15,
+            max_inactive_connection_lifetime=300,  # 5 分钟闲连接重建
+            # 如果 PostgreSQL 上下走了 PgBouncer 类代理，该参数避免 statement
+            # cache 不一致导致的参数绑定错误。启用后性能有轻微损失，但场景
+            # 安全。Zeabur PostgreSQL 不走代理，重启不会丢，保留默认 None 即可。
         )
         await _init_schema()
 

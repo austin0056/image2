@@ -6,12 +6,13 @@ import secrets
 import time
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from . import db, zpay
 from .config import settings
+from .deps import current_user
 
 router = APIRouter()
 log = logging.getLogger("payment")
@@ -105,9 +106,17 @@ async def payment_notify(req: Request) -> PlainTextResponse:
         return PlainTextResponse("fail")
 
     # 2) 状态校验
-    if params.get("trade_status") != "TRADE_SUCCESS":
-        # 非成功状态，不处理但回 success 让 zpay 不重试
-        return PlainTextResponse("success")
+    status = params.get("trade_status") or ""
+    if status != "TRADE_SUCCESS":
+        # 终态 (已关闭/已完成)：不结算，回 success 避免 zpay 重试
+        if status in ("TRADE_CLOSED", "TRADE_FINISHED"):
+            log.info("zpay notify terminal-not-success: %s status=%s",
+                     params.get("out_trade_no", ""), status)
+            return PlainTextResponse("success")
+        # 临时/未知态：回 fail 让 zpay 按重试策略推送下一条
+        log.warning("zpay notify non-success status=%s out_trade_no=%s",
+                    status, params.get("out_trade_no", ""))
+        return PlainTextResponse("fail")
 
     out_trade_no = params.get("out_trade_no", "")
     money = params.get("money", "")
@@ -154,11 +163,10 @@ async def payment_return(req: Request):
 # ---------- /api/payment/{out_trade_no}：前端轮询 ----------
 
 @router.get("/api/payment/{out_trade_no}")
-async def get_payment_status(out_trade_no: str, access_key: str) -> JSONResponse:
-    user = await db.get_user_by_key(access_key)
-    if not user:
-        raise HTTPException(401, "access key 无效")
-
+async def get_payment_status(
+    out_trade_no: str,
+    user: dict = Depends(current_user),
+) -> JSONResponse:
     p = await db.get_payment(out_trade_no)
     if not p:
         raise HTTPException(404, "订单不存在")
@@ -190,10 +198,10 @@ async def recharge_presets() -> dict:
 # ---------- /api/payments：用户充值历史 ----------
 
 @router.get("/api/payments")
-async def my_payments(access_key: str, limit: int = 50) -> dict:
-    user = await db.get_user_by_key(access_key)
-    if not user:
-        raise HTTPException(401, "未登录")
+async def my_payments(
+    limit: int = 50,
+    user: dict = Depends(current_user),
+) -> dict:
     limit = max(1, min(limit, 200))
     rows = await db.list_user_payments(user["id"], limit=limit)
     return {
