@@ -678,35 +678,101 @@ input[type="range"] {
   font-weight: 500;
 }
 
-/* 充值记录列表 */
+/* 充值记录列表 ============================================ */
+.pay-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 56px 20px; color: var(--c-text-mute);
+}
+.pay-empty svg { opacity: 0.45; }
+.pay-empty-title { font-size: 13px; color: var(--c-text-2); font-weight: 500; }
+.pay-empty-sub { font-size: 11.5px; color: var(--c-text-mute); }
+
 .pay-item {
-  display: grid; grid-template-columns: auto 1fr auto;
-  align-items: center; gap: var(--s-3);
-  padding: 10px 8px; border-radius: var(--r-md);
-  border: 1px solid var(--c-line);
+  position: relative;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
   background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  transition: border-color var(--t-fast), transform var(--t-fast),
+              box-shadow var(--t-fast);
 }
-.pay-item .pay-amt {
-  font-family: var(--font-mono); font-size: 16px; font-weight: 600;
-  color: var(--c-text);
+.pay-item:hover {
+  border-color: var(--c-border-strong, #d0d4dc);
+  box-shadow: var(--shadow-1);
 }
-.pay-item .pay-meta { min-width: 0; }
-.pay-item .pay-no {
-  font-family: var(--font-mono); font-size: 11px; color: var(--c-text-mute);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.pay-item::before {
+  content: ""; position: absolute; left: 0; top: 14px; bottom: 14px;
+  width: 3px; border-radius: 0 2px 2px 0;
 }
-.pay-item .pay-time {
-  font-size: 11px; color: var(--c-text-mute); margin-top: 2px;
+.pay-item.is-paid::before    { background: linear-gradient(180deg, #22C55E, #16A34A); }
+.pay-item.is-pending::before { background: linear-gradient(180deg, #F59E0B, #D97706); }
+.pay-item.is-expired::before { background: var(--c-line); }
+
+.pay-row-main {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; gap: 12px;
 }
-.pay-item .pay-status {
-  font-size: 11px; padding: 3px 8px; border-radius: var(--r-pill);
+.pay-row-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding-top: 8px;
+  border-top: 1px dashed var(--c-line);
+}
+
+.pay-amt {
+  display: flex; align-items: baseline; gap: 2px;
+  font-family: var(--font-mono); font-weight: 600;
+  color: var(--c-text); letter-spacing: -0.02em;
+}
+.pay-amt-yuan { font-size: 18px; }
+.pay-item.is-expired .pay-amt { color: var(--c-text-mute); text-decoration: line-through; }
+
+.pay-mid { min-width: 0; }
+.pay-mid-1 {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--c-text-2);
+}
+.pay-method {
+  display: inline-flex; align-items: center; gap: 4px;
   font-weight: 500;
 }
-.pay-item .pay-status.ok {
-  background: rgba(22,163,74,.12); color: #16A34A;
+.pay-dot { color: var(--c-text-mute); }
+.pay-time { color: var(--c-text-mute); }
+
+.pay-no-short {
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--c-text-mute); cursor: help;
 }
-.pay-item .pay-status.pending {
-  background: rgba(217,119,6,.12); color: #D97706;
+.pay-foot-paid    { font-size: 11px; color: #16A34A; }
+.pay-foot-expired { font-size: 11px; color: var(--c-text-mute); }
+
+.pay-resume {
+  border: 0; background: transparent;
+  padding: 4px 10px; border-radius: var(--r-md);
+  font-size: 11.5px; font-weight: 500;
+  color: var(--c-brand-2, #FF5C2C); cursor: pointer;
+  transition: background var(--t-fast);
+}
+.pay-resume:hover { background: rgba(255,92,44,.08); }
+
+.pay-status {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 4px 10px; border-radius: var(--r-pill);
+  font-weight: 500; white-space: nowrap;
+}
+.pay-status.ok       { background: rgba(22,163,74,.12); color: #16A34A; }
+.pay-status.pending  { background: rgba(217,119,6,.12); color: #D97706; }
+.pay-status.expired  { background: var(--c-surface-sunken); color: var(--c-text-mute); }
+
+.pulse-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #D97706; box-shadow: 0 0 0 0 rgba(217,119,6,.5);
+  animation: pulse-pay 1.6s infinite;
+}
+@keyframes pulse-pay {
+  0%   { box-shadow: 0 0 0 0 rgba(217,119,6,.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(217,119,6,0); }
+  100% { box-shadow: 0 0 0 0 rgba(217,119,6,0); }
 }
 
 /* ============================================================

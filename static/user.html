@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260526e" />
+<link rel="stylesheet" href="/static/app.css?v=20260526f" />
 </head>
 <body>
 
@@ -532,29 +532,98 @@ async function refreshPayments() {
     const data = await api("/api/payments");
     box.innerHTML = "";
     if (!data.items.length) {
-      box.innerHTML = '<div class="dim" style="text-align:center;padding:40px 20px;font-size:12.5px;">暂无充值记录</div>';
+      box.innerHTML = `
+        <div class="pay-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="6" width="18" height="13" rx="2"/>
+            <path d="M3 10h18M7 15h3"/>
+          </svg>
+          <div class="pay-empty-title">暂无充值记录</div>
+          <div class="pay-empty-sub">点顶部“充值”开始</div>
+        </div>`;
       return;
     }
     for (const p of data.items) {
       const div = document.createElement("div");
-      div.className = "pay-item";
+      const isPaid = p.status === "paid";
+      const isExpired = p.status === "expired";
+      const statusKey = isPaid ? "paid" : (isExpired ? "expired" : "pending");
+      div.className = "pay-item is-" + statusKey;
       const yuan = (p.amount_cents / 100).toFixed(2);
-      const t = p.created_at ? p.created_at.replace("T", " ").slice(0, 16) : "";
-      const statusLabel = p.status === "paid" ? "已付款" : "待付款";
-      const statusCls = p.status === "paid" ? "ok" : "pending";
+      const friendly = formatPayTime(p.created_at);
+      const fullTime = (p.created_at || "").replace("T", " ").slice(0, 19);
+      const tradeShort = (p.out_trade_no || "").slice(-8);
+      const payTypeLabel = (p.pay_type || "alipay") === "alipay" ? "支付宝" : p.pay_type;
+
+      let statusBadge, footRight;
+      if (isPaid) {
+        statusBadge = `<span class="pay-status ok"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3.5 3.5L13 5"/></svg>已到账</span>`;
+        const paidT = p.paid_at ? formatPayTime(p.paid_at) : "";
+        footRight = paidT ? `<span class="pay-foot-paid">到账 ${paidT}</span>` : "";
+      } else if (isExpired) {
+        statusBadge = `<span class="pay-status expired">已过期</span>`;
+        footRight = `<span class="pay-foot-expired">未在 30 分钟内付款</span>`;
+      } else {
+        statusBadge = `<span class="pay-status pending"><span class="pulse-dot"></span>待付款</span>`;
+        footRight = `<button class="pay-resume" data-no="${p.out_trade_no}" data-cents="${p.amount_cents}">查询状态</button>`;
+      }
+
       div.innerHTML = `
-        <div class="pay-amt">¥${yuan}</div>
-        <div class="pay-meta">
-          <div class="pay-no" title="${p.out_trade_no}">${p.out_trade_no}</div>
-          <div class="pay-time">${t}</div>
+        <div class="pay-row-main">
+          <div class="pay-amt">
+            <span class="pay-amt-yuan">¥${yuan}</span>
+          </div>
+          <div class="pay-mid">
+            <div class="pay-mid-1">
+              <span class="pay-method">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="#1677FF"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.5 14.5L6 12l1.4-1.4 3.1 3.1 6.1-6.1L18 9l-7.5 7.5z"/></svg>
+                ${payTypeLabel}
+              </span>
+              <span class="pay-dot">·</span>
+              <span class="pay-time" title="${fullTime}">${friendly}</span>
+            </div>
+          </div>
+          ${statusBadge}
         </div>
-        <span class="pay-status ${statusCls}">${statusLabel}</span>
+        <div class="pay-row-foot">
+          <span class="pay-no-short" title="${p.out_trade_no}">单号 ···${tradeShort}</span>
+          ${footRight}
+        </div>
       `;
       box.appendChild(div);
     }
+    // “查询状态”按钮点击
+    box.querySelectorAll(".pay-resume").forEach((btn) => {
+      btn.onclick = () => {
+        const no = btn.dataset.no;
+        const cents = parseInt(btn.dataset.cents, 10);
+        startWatching(no, cents);
+      };
+    });
   } catch (e) {
-    box.innerHTML = '<div class="dim" style="text-align:center;padding:40px 20px;color:var(--c-danger);">加载失败</div>';
+    box.innerHTML = '<div class="pay-empty" style="color:var(--c-danger);">加载失败</div>';
   }
+}
+
+function formatPayTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  const sameDay = d.toDateString() === now.toDateString();
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  const isYest = d.toDateString() === yest.toDateString();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+  if (sameDay) return `今天 ${hh}:${mm}`;
+  if (isYest) return `昨天 ${hh}:${mm}`;
+  if (now.getFullYear() === d.getFullYear()) {
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${hh}:${mm}`;
+  }
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}`;
 }
 
 /* ===================== Dropzone ===================== */
