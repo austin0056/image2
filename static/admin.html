@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260527a" />
+<link rel="stylesheet" href="/static/app.css?v=20260527b" />
 <style>
   /* admin 页紫色品牌色，覆盖默认橙 */
   body { overflow: auto; }
@@ -86,6 +86,40 @@
           <div class="k">今日充值</div>
           <div class="v" id="s-paid-today">¥0.00</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Image Provider Settings -->
+    <div class="admin-card">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:var(--s-4);flex-wrap:wrap;">
+        <div>
+          <h3 style="margin:0 0 4px;">图片 AI 提供商</h3>
+          <div class="dim" style="font-size:12px;">配置图片生成接口，保存后立即生效，无需重启服务。</div>
+        </div>
+        <span id="provider-key-state" class="dim" style="font-size:12px;">加载中…</span>
+      </div>
+      <div class="kv-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end;">
+        <div>
+          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">API Base URL</label>
+          <input id="provider-base" type="text" placeholder="https://haochi.moon9.cloud/v1" />
+        </div>
+        <div>
+          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">模型</label>
+          <input id="provider-model" type="text" placeholder="gpt-image-2" />
+        </div>
+        <div>
+          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">API Key</label>
+          <input id="provider-key" type="password" placeholder="留空则不修改现有密钥" autocomplete="new-password" />
+        </div>
+        <div>
+          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">图片单价（分）</label>
+          <input id="provider-price" type="number" min="0" max="1000000" step="1" placeholder="5" />
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:var(--s-4);flex-wrap:wrap;">
+        <button class="btn primary" id="save-provider">保存设置</button>
+        <button class="btn ghost" id="reload-provider">重新加载</button>
+        <span class="dim" style="font-size:12px;">环境变量仅作为首次初始化/兜底默认值。</span>
       </div>
     </div>
 
@@ -207,7 +241,13 @@ async function login() {
 async function logout() { await api("/api/admin/logout", { method: "POST" }); showLogin(); }
 
 async function refreshAll() {
-  await Promise.all([refreshStats(), refreshUsers(), refreshGenerations(), refreshPayments()]);
+  await Promise.all([
+    refreshStats(),
+    refreshImageProviderSettings(),
+    refreshUsers(),
+    refreshGenerations(),
+    refreshPayments(),
+  ]);
 }
 async function refreshStats() {
   const s = await api("/api/admin/stats");
@@ -217,6 +257,41 @@ async function refreshStats() {
   $("s-failed").textContent = s.failed_calls;
   $("s-paid").textContent = fmtMoney(s.total_paid_cents || 0);
   $("s-paid-today").textContent = fmtMoney(s.today_paid_cents || 0);
+}
+async function refreshImageProviderSettings() {
+  const s = await api("/api/admin/settings/image-provider");
+  $("provider-base").value = s.upstream_base || "";
+  $("provider-model").value = s.upstream_model || "";
+  $("provider-price").value = String(s.price_cents ?? 5);
+  $("provider-key").value = "";
+  $("provider-key").placeholder = s.upstream_key_set
+    ? `留空则保留现有密钥（${s.upstream_key_preview}）`
+    : "尚未设置，请输入 API Key";
+  $("provider-key-state").textContent = s.upstream_key_set
+    ? `密钥已设置：${s.upstream_key_preview}`
+    : "密钥未设置";
+}
+async function saveImageProviderSettings() {
+  const upstream_base = $("provider-base").value.trim();
+  const upstream_model = $("provider-model").value.trim();
+  const upstream_key = $("provider-key").value.trim();
+  const price_cents = parseInt($("provider-price").value, 10);
+  if (!upstream_base || !upstream_model) { toast("请填写 Base URL 和模型", "error"); return; }
+  if (!Number.isFinite(price_cents) || price_cents < 0) { toast("单价必须是非负整数", "error"); return; }
+  const btn = $("save-provider");
+  btn.disabled = true;
+  try {
+    await api("/api/admin/settings/image-provider", {
+      method: "PATCH",
+      body: JSON.stringify({ upstream_base, upstream_model, upstream_key, price_cents }),
+    });
+    toast("图片 AI 提供商设置已保存", "success");
+    await refreshImageProviderSettings();
+  } catch (e) {
+    toast("保存失败：" + e.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
 }
 async function refreshPayments() {
   const qs = new URLSearchParams();
@@ -386,6 +461,11 @@ $("filter-kind").onchange = refreshGenerations;
 $("refresh-pay").onclick = refreshPayments;
 $("pay-filter-status").onchange = refreshPayments;
 $("pay-filter-key").addEventListener("keydown", (e) => { if (e.key === "Enter") refreshPayments(); });
+$("save-provider").onclick = saveImageProviderSettings;
+$("reload-provider").onclick = refreshImageProviderSettings;
+["provider-base", "provider-model", "provider-key", "provider-price"].forEach((id) => {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") saveImageProviderSettings(); });
+});
 
 api("/api/admin/me").then(showApp).catch(() => showLogin());
 </script>

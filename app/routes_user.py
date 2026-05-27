@@ -54,10 +54,11 @@ class KeyBody(BaseModel):
 @router.post("/api/me")
 async def api_me(body: KeyBody) -> dict[str, Any]:
     user = await require_user(body.access_key)
+    image_provider = await db.get_image_provider_settings(reveal_key=False)
     return {
         "name": user["name"],
         "balance_cents": user["balance_cents"],
-        "price_cents": settings.price_cents,
+        "price_cents": image_provider["price_cents"],
         "price_recraft_cents": settings.price_recraft_cents,
     }
 
@@ -92,6 +93,10 @@ async def api_generate(
     size = _validate_size(size)
     if quality not in ALLOWED_QUALITY:
         raise HTTPException(400, f"quality 必须是 {sorted(ALLOWED_QUALITY)} 之一")
+    image_provider = await db.get_image_provider_settings(reveal_key=True)
+    if not image_provider["upstream_base"] or not image_provider["upstream_model"] or not image_provider["upstream_key"]:
+        raise HTTPException(503, "图片生成 AI 提供商未配置完整，请联系管理员")
+    cost_cents = image_provider["price_cents"]
 
     ref_bytes: bytes | None = None
     ref_key: str | None = None
@@ -117,7 +122,7 @@ async def api_generate(
         size=size,
         has_ref=has_ref,
         ref_key=ref_key,
-        cost_cents=settings.price_cents,
+        cost_cents=cost_cents,
     )
     if gen_id is None:
         raise HTTPException(402, "余额不足")
@@ -138,13 +143,13 @@ async def api_generate(
     except upstream.UpstreamError as e:
         log.warning("generate 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
         new_balance = await db.mark_failed_and_refund(
-            gen_id, user["id"], settings.price_cents, str(e)
+            gen_id, user["id"], cost_cents, str(e)
         )
         raise HTTPException(502, f"生成失败: {e}. 已退款。当前余额 {new_balance} 分")
     except Exception as e:
         log.exception("generate 内部异常 user=%s gen=%s", user["id"], gen_id)
         new_balance = await db.mark_failed_and_refund(
-            gen_id, user["id"], settings.price_cents, str(e)
+            gen_id, user["id"], cost_cents, str(e)
         )
         raise HTTPException(500, f"内部错误: {e}. 已退款。当前余额 {new_balance} 分")
 
@@ -246,12 +251,13 @@ async def api_generate_icon(
     if stroke_width is not None and not (0.5 <= stroke_width <= 8.0):
         raise HTTPException(400, "stroke_width 范围 0.5–8")
 
-    # 价格与标签按引擎区分
+    # 价格与标签按引擎区分。快速图标沿用图片基础单价，保持 /api/me 展示与扣费一致。
+    image_provider = await db.get_image_provider_settings(reveal_key=False)
     if engine == "recraft":
         cost = settings.price_recraft_cents
         style_label = f"recraft {recraft_style}"
     else:
-        cost = settings.price_cents
+        cost = image_provider["price_cents"]
         style_label = library
     if primary:
         style_label += f" P{primary}"

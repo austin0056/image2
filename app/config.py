@@ -113,7 +113,8 @@ def load_settings() -> Settings:
     session_secret = _env("SESSION_SECRET") or secrets.token_urlsafe(32)
     return Settings(
         upstream_base=_env("UPSTREAM_BASE", "https://haochi.moon9.cloud/v1"),
-        upstream_key=_env("UPSTREAM_KEY", required=True),
+        # UPSTREAM_KEY 现在可在管理面板配置；环境变量仅作为首次初始化/兜底默认值。
+        upstream_key=_env("UPSTREAM_KEY", ""),
         upstream_model=_env("UPSTREAM_MODEL", "gpt-image-2"),
         price_cents=int(_env("PRICE_CENTS", "5")),
         price_recraft_cents=int(_env("PRICE_RECRAFT_CENTS", "300")),

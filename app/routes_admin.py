@@ -31,6 +31,14 @@ class TopupBody(BaseModel):
     yuan: float = Field(..., gt=0, le=1_000_000)
 
 
+class ImageProviderSettingsBody(BaseModel):
+    upstream_base: str = Field(..., min_length=1, max_length=500)
+    upstream_model: str = Field(..., min_length=1, max_length=200)
+    # 空字符串/None 表示不修改现有密钥。
+    upstream_key: str | None = Field(default=None, max_length=5000)
+    price_cents: int = Field(..., ge=0, le=1_000_000)
+
+
 @router.post("/api/admin/login")
 async def admin_login(body: LoginBody, response: Response) -> dict[str, Any]:
     if body.password != settings.admin_password:
@@ -64,6 +72,28 @@ async def admin_stats() -> dict[str, Any]:
     pay = await db.admin_payment_stats()
     base.update(pay)
     return base
+
+
+@router.get("/api/admin/settings/image-provider", dependencies=[Depends(require_admin)])
+async def admin_get_image_provider_settings() -> dict[str, Any]:
+    return await db.get_image_provider_settings(reveal_key=False)
+
+
+@router.patch("/api/admin/settings/image-provider", dependencies=[Depends(require_admin)])
+async def admin_update_image_provider_settings(body: ImageProviderSettingsBody) -> dict[str, Any]:
+    upstream_base = body.upstream_base.strip().rstrip("/")
+    upstream_model = body.upstream_model.strip()
+    if not upstream_base.startswith(("http://", "https://")):
+        raise HTTPException(400, "API Base URL 必须以 http:// 或 https:// 开头")
+    if not upstream_model:
+        raise HTTPException(400, "模型名不能为空")
+    key = body.upstream_key.strip() if body.upstream_key is not None else ""
+    return await db.update_image_provider_settings(
+        upstream_base=upstream_base,
+        upstream_model=upstream_model,
+        price_cents=body.price_cents,
+        upstream_key=key or None,
+    )
 
 
 @router.get("/api/admin/payments", dependencies=[Depends(require_admin)])

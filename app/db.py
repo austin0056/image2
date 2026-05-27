@@ -99,6 +99,102 @@ async def _init_schema() -> None:
                 ON payments(status);
             """
         )
+        # 系统设置表：用于运行时配置图片生成上游，环境变量只作为首次初始化默认值。
+        await con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        defaults = {
+            "image_provider.base": settings.upstream_base,
+            "image_provider.key": settings.upstream_key,
+            "image_provider.model": settings.upstream_model,
+            "image_provider.price_cents": str(settings.price_cents),
+        }
+        for key, value in defaults.items():
+            await con.execute(
+                """
+                INSERT INTO app_settings(key, value)
+                VALUES($1, $2)
+                ON CONFLICT (key) DO NOTHING
+                """,
+                key, value or "",
+            )
+
+
+# ----- 系统设置 -----
+
+_IMAGE_PROVIDER_KEYS = {
+    "base": "image_provider.base",
+    "key": "image_provider.key",
+    "model": "image_provider.model",
+    "price_cents": "image_provider.price_cents",
+}
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "••••"
+    return value[:4] + "…" + value[-4:]
+
+
+async def get_image_provider_settings(*, reveal_key: bool = True) -> dict[str, Any]:
+    """返回图片生成上游配置。reveal_key=False 时仅返回脱敏 key。"""
+    async with pool().acquire() as con:
+        rows = await con.fetch(
+            "SELECT key, value FROM app_settings WHERE key = ANY($1::text[])",
+            list(_IMAGE_PROVIDER_KEYS.values()),
+        )
+    values = {r["key"]: r["value"] for r in rows}
+    raw_key = values.get(_IMAGE_PROVIDER_KEYS["key"], settings.upstream_key) or ""
+    try:
+        price_cents = int(values.get(_IMAGE_PROVIDER_KEYS["price_cents"], str(settings.price_cents)) or settings.price_cents)
+    except (TypeError, ValueError):
+        price_cents = settings.price_cents
+    price_cents = max(0, price_cents)
+    return {
+        "upstream_base": (values.get(_IMAGE_PROVIDER_KEYS["base"], settings.upstream_base) or settings.upstream_base).rstrip("/"),
+        "upstream_key": raw_key if reveal_key else "",
+        "upstream_key_set": bool(raw_key),
+        "upstream_key_preview": _mask_secret(raw_key),
+        "upstream_model": values.get(_IMAGE_PROVIDER_KEYS["model"], settings.upstream_model) or settings.upstream_model,
+        "price_cents": price_cents,
+    }
+
+
+async def update_image_provider_settings(
+    *,
+    upstream_base: str,
+    upstream_model: str,
+    price_cents: int,
+    upstream_key: str | None = None,
+) -> dict[str, Any]:
+    updates = {
+        _IMAGE_PROVIDER_KEYS["base"]: upstream_base.rstrip("/"),
+        _IMAGE_PROVIDER_KEYS["model"]: upstream_model,
+        _IMAGE_PROVIDER_KEYS["price_cents"]: str(max(0, int(price_cents))),
+    }
+    if upstream_key is not None:
+        updates[_IMAGE_PROVIDER_KEYS["key"]] = upstream_key
+    async with pool().acquire() as con:
+        async with con.transaction():
+            for key, value in updates.items():
+                await con.execute(
+                    """
+                    INSERT INTO app_settings(key, value, updated_at)
+                    VALUES($1, $2, now())
+                    ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value, updated_at = now()
+                    """,
+                    key, value or "",
+                )
+    return await get_image_provider_settings(reveal_key=False)
 
 
 # ----- 用户 -----
@@ -219,11 +315,14 @@ async def mark_success_svg(generation_id: int, svg_text: str) -> None:
 
 
 async def mark_failed_and_refund(generation_id: int, user_id: int, cost_cents: int, err: str) -> int:
-    """失败：标记记录 + 退款。返回退款后余额。"""
+    """失败：标记记录 + 退款。返回退款后余额。
+
+    注意：保留 cost_cents 原值，以便在账户流水里展示退款金额。
+    """
     async with pool().acquire() as con:
         async with con.transaction():
             await con.execute(
-                "UPDATE generations SET status='failed', error=$1, cost_cents=0 WHERE id=$2",
+                "UPDATE generations SET status='failed', error=$1 WHERE id=$2",
                 err[:1000], generation_id,
             )
             row = await con.fetchrow(
@@ -357,19 +456,6 @@ async def settle_payment(
             return "success", int(user_id), int(bal_row["balance_cents"])
 
 
-async def list_user_payments(user_id: int, limit: int = 20) -> list[dict[str, Any]]:
-    async with pool().acquire() as con:
-        rows = await con.fetch(
-            """
-            SELECT id, out_trade_no, trade_no, amount_cents, status, pay_type,
-                   created_at, paid_at
-            FROM payments WHERE user_id=$1 ORDER BY id DESC LIMIT $2
-            """,
-            user_id, limit,
-        )
-    return [dict(r) for r in rows]
-
-
 async def list_user_ledger(
     user_id: int,
     limit: int = 50,
@@ -380,10 +466,12 @@ async def list_user_ledger(
     返回字段：
       kind:        recharge | consume | refund
       status:      success(已到账/已扣费) | pending | failed | expired
-      delta_cents: 有符号，+为入账 -为出账，pending 为 0
-      title / sub: 用于前端展示的主、次文本
+      amount_cents:绝对值，前端结合 kind/status 决定方向
       ref_id:      源表 id
       ref_no:      订单号（仅 recharge）
+      pay_type:    支付方式（仅 recharge）
+      prompt/gen_kind/error: generations 相关字段（仅 consume/refund）
+      occur_at:    事件发生时间，paid_at 优先，否则 created_at
 
     type_filter: None / 'all' / 'recharge' / 'consume_refund'
     任何未识别值与 None 等价，返回全部。
@@ -433,7 +521,7 @@ async def list_user_ledger(
         body = f"{sql_payments}\nUNION ALL\n{sql_generations}"
     sql = f"""
         SELECT * FROM ({body}) t
-        ORDER BY occur_at DESC NULLS LAST, ref_id DESC
+        ORDER BY occur_at DESC, ref_id DESC
         LIMIT $2
     """
     async with pool().acquire() as con:
