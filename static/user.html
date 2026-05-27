@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260526g" />
+<link rel="stylesheet" href="/static/app.css?v=20260527a" />
 </head>
 <body>
 <!-- SVG sprite: 账户流水使用 -->
@@ -439,6 +439,29 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+function sanitizeSvg(svgText) {
+  const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+  if (doc.querySelector("parsererror")) throw new Error("SVG 解析失败");
+  const svg = doc.documentElement;
+  if (!svg || svg.tagName.toLowerCase() !== "svg") throw new Error("返回内容不是 SVG");
+
+  svg.querySelectorAll("script, foreignObject, iframe, object, embed, link, audio, video").forEach((el) => el.remove());
+  svg.querySelectorAll("*").forEach((el) => {
+    [...el.attributes].forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim();
+      if (name.startsWith("on")) el.removeAttribute(attr.name);
+      if ((name === "href" || name === "xlink:href" || name === "src") && /^(javascript:|data:text\/html|https?:)/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+      if (name === "style" && /url\s*\(|expression\s*\(/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return new XMLSerializer().serializeToString(svg);
+}
+
 function toast(msg, type = "") {
   const el = $("toast");
   el.textContent = msg;
@@ -598,19 +621,22 @@ async function refreshLedger() {
     if (summary && (inSum || outSum)) {
       summary.innerHTML = `
         <div class="led-stat">
-          <span class="led-stat-label">最近入账</span>
+          <span class="led-stat-label">本次显示入账</span>
           <span class="led-stat-val income">+¥${(inSum / 100).toFixed(2)}</span>
         </div>
         <div class="led-stat">
-          <span class="led-stat-label">最近出账</span>
+          <span class="led-stat-label">本次显示出账</span>
           <span class="led-stat-val expense">-¥${(outSum / 100).toFixed(2)}</span>
         </div>`;
     }
 
-    // 按日分组
+    // 按日分组（按用户本地时区切日，避免 UTC 切日导致的跨日错位）
     const groups = new Map();
     for (const it of data.items) {
-      const d = it.occur_at ? it.occur_at.slice(0, 10) : "";
+      const dt = it.occur_at ? new Date(it.occur_at) : null;
+      const d = (dt && !isNaN(dt))
+        ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
+        : "";
       if (!groups.has(d)) groups.set(d, []);
       groups.get(d).push(it);
     }
@@ -656,7 +682,7 @@ function renderLedgerItem(it) {
 
   let action = "";
   if (it.kind === "recharge" && it.status === "pending") {
-    action = `<button class="led-resume" data-no="${it.ref_no}" data-cents="${it.amount_cents}">查询状态</button>`;
+    action = `<button class="led-resume" data-no="${it.ref_no}">查询状态</button>`;
   } else if (it.kind === "recharge" && it.status === "expired") {
     action = `<span class="led-tag">已过期</span>`;
   } else if (it.kind === "consume" && it.status === "pending") {
@@ -680,7 +706,7 @@ function renderLedgerItem(it) {
   const btn = div.querySelector(".led-resume");
   if (btn) {
     btn.onclick = () => {
-      startWatching(btn.dataset.no, parseInt(btn.dataset.cents, 10));
+      startWatching(btn.dataset.no);
     };
   }
   return div;
@@ -702,9 +728,11 @@ function formatDayLabel(day) {
   const d = new Date(day + "T00:00:00");
   if (isNaN(d)) return day;
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
+  const localKey = (x) =>
+    `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  const today = localKey(now);
   const yest = new Date(now); yest.setDate(yest.getDate() - 1);
-  const yKey = yest.toISOString().slice(0, 10);
+  const yKey = localKey(yest);
   if (day === today) return "今天";
   if (day === yKey) return "昨天";
   if (now.getFullYear() === d.getFullYear()) {
@@ -754,19 +782,39 @@ function setRefFile(f) {
 function showEmpty() {
   $("empty-state").classList.remove("hidden");
   $("result-card").classList.add("hidden");
+  $("result-card").style.cssText = "";
   $("canvas-foot").classList.add("hidden");
 }
 function showLoading(text, hint) {
   $("empty-state").classList.add("hidden");
   $("result-card").classList.remove("hidden");
-  $("result-card").className = "result-frame";
+  $("result-card").className = "result-frame loading-mode";
+  $("result-card").style.cssText = "";
   $("result-wrap").innerHTML = `
-    <div class="cv-loading">
+    <div class="cv-loading" role="status" aria-live="polite">
       <div class="ring"></div>
-      <div class="ltext">${text}</div>
-      <div class="lhint">${hint || ""}</div>
+      <div class="ltext">${escapeHtml(text)}</div>
+      <div class="lhint">${escapeHtml(hint || "")}</div>
     </div>`;
-  $("result-card").style.cssText = "min-width:320px;min-height:320px;width:480px;height:480px;";
+  $("canvas-foot").classList.add("hidden");
+}
+function showErrorState(message) {
+  $("empty-state").classList.add("hidden");
+  $("result-card").classList.remove("hidden");
+  $("result-card").className = "result-frame error-mode";
+  $("result-card").style.cssText = "";
+  $("result-wrap").innerHTML = `
+    <div class="cv-error" role="alert">
+      <div class="err-icon">!</div>
+      <div class="err-title">生成失败</div>
+      <div class="err-msg">${escapeHtml(message)}</div>
+      <button class="btn secondary small" id="retry-generate" type="button">重试</button>
+    </div>`;
+  const retry = $("retry-generate");
+  if (retry) retry.onclick = () => {
+    const isIcon = !$("pane-icon").classList.contains("hidden");
+    isIcon ? generateIcon() : generate();
+  };
   $("canvas-foot").classList.add("hidden");
 }
 function showImageResult(url) {
@@ -795,8 +843,9 @@ function showImageResult(url) {
   applyResultBg();
 }
 function showSvgResult(svgText, downloadName) {
-  lastSvgText = svgText;
-  const blob = new Blob([svgText], { type: "image/svg+xml" });
+  const safeSvg = sanitizeSvg(svgText);
+  lastSvgText = safeSvg;
+  const blob = new Blob([safeSvg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   $("empty-state").classList.add("hidden");
   $("result-card").className = "result-frame icon-mode";
@@ -804,8 +853,8 @@ function showSvgResult(svgText, downloadName) {
   $("result-card").style.cssText = "";
   const wrap = $("result-wrap");
   wrap.className = "";
-  // 直接嵌入 SVG。避免 <img blob:> 可能被浏览器拦截。
-  wrap.innerHTML = svgText;
+  // 清洗后再内嵌 SVG，避免脚本、事件属性或外链资源污染页面。
+  wrap.innerHTML = safeSvg;
   // 让嵌入的 svg 填满容器
   const innerSvg = wrap.querySelector("svg");
   if (innerSvg) {
@@ -822,10 +871,10 @@ function showSvgResult(svgText, downloadName) {
   ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.remove("hidden"));
   $("size-toolbar").style.display = "";
   $("svg-source").classList.add("hidden");
-  $("svg-source").textContent = svgText;
-  const m = svgText.match(/viewBox="([\d.\-\s]+)"/);
+  $("svg-source").textContent = safeSvg;
+  const m = safeSvg.match(/viewBox="([\d.\-\s]+)"/);
   const sizeStr = m ? m[1].trim() : "未知";
-  const bytes = new Blob([svgText]).size;
+  const bytes = new Blob([safeSvg]).size;
   $("result-info").textContent = `viewBox: ${sizeStr} · ${bytes} 字节`;
   $("canvas-foot").classList.remove("hidden");
   applyPreviewSize(getActiveSize());
@@ -880,7 +929,7 @@ async function generate() {
     toast("生成成功", "success");
     refreshHistory();
   } catch (e) {
-    showEmpty();
+    showErrorState(e.message);
     $("status").textContent = "";
     toast("生成失败：" + e.message, "error");
     refreshMe();
@@ -927,7 +976,7 @@ async function generateIcon() {
     toast("生成成功", "success");
     refreshHistory();
   } catch (e) {
-    showEmpty();
+    showErrorState(e.message);
     $("icon-status").textContent = "";
     toast("生成失败：" + e.message, "error");
     refreshMe();
@@ -953,7 +1002,8 @@ async function svgToPngDownload(filename, target = 1024) {
   const canvas = document.createElement("canvas");
   canvas.width = cw; canvas.height = ch;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cw, ch);
+  // 默认导出透明 PNG；如需白底，可先在 SVG 中自行添加背景矩形。
+  ctx.clearRect(0, 0, cw, ch);
   ctx.drawImage(img, 0, 0, cw, ch);
   URL.revokeObjectURL(url);
   canvas.toBlob((png) => {
@@ -976,15 +1026,34 @@ function renderSwatches(boxId, targetColor, targetText) {
     const s = document.createElement("button");
     s.type = "button"; s.className = "sw";
     s.style.background = c; s.title = c;
-    s.onclick = () => { $(targetColor).value = c; $(targetText).value = c; };
+    s.onclick = () => setColorValue(targetColor, targetText, c);
     box.appendChild(s);
   });
 }
+function setColorValue(picker, text, value) {
+  const p = $(picker), t = $(text);
+  if (/^#[0-9a-fA-F]{6}$/.test(value || "")) {
+    p.value = value;
+    t.value = value;
+    p.classList.remove("is-empty");
+  } else {
+    t.value = "";
+    p.classList.add("is-empty");
+  }
+}
 function bindColorSync(picker, text) {
-  $(picker).addEventListener("input", (e) => { $(text).value = e.target.value; });
+  $(picker).addEventListener("input", (e) => {
+    $(text).value = e.target.value;
+    $(picker).classList.remove("is-empty");
+  });
   $(text).addEventListener("input", (e) => {
     const v = e.target.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) $(picker).value = v;
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+      $(picker).value = v;
+      $(picker).classList.remove("is-empty");
+    } else if (!v) {
+      $(picker).classList.add("is-empty");
+    }
   });
 }
 function hexToHsl(hex) {
@@ -1021,11 +1090,8 @@ function hslToHex(h, s, l) {
   return "#" + to(r) + to(g) + to(b);
 }
 function setBothColors(p, s) {
-  if (p) { $("icon-color").value = p; $("icon-color-text").value = p; }
-  if (s !== null && s !== undefined) {
-    if (s) { $("icon-color2").value = s; $("icon-color2-text").value = s; }
-    else { $("icon-color2-text").value = ""; }
-  }
+  if (p) setColorValue("icon-color", "icon-color-text", p);
+  if (s !== null && s !== undefined) setColorValue("icon-color2", "icon-color2-text", s);
 }
 
 /* ===================== 库提示 / 笔画 ===================== */
@@ -1102,8 +1168,10 @@ renderSwatches("color-swatches", "icon-color", "icon-color-text");
 renderSwatches("color2-swatches", "icon-color2", "icon-color2-text");
 bindColorSync("icon-color", "icon-color-text");
 bindColorSync("icon-color2", "icon-color2-text");
-$("icon-color-clear").onclick = () => { $("icon-color-text").value = ""; };
-$("icon-color2-clear").onclick = () => { $("icon-color2-text").value = ""; };
+if (!$("icon-color-text").value.trim()) $("icon-color").classList.add("is-empty");
+if (!$("icon-color2-text").value.trim()) $("icon-color2").classList.add("is-empty");
+$("icon-color-clear").onclick = () => setColorValue("icon-color", "icon-color-text", "");
+$("icon-color2-clear").onclick = () => setColorValue("icon-color2", "icon-color2-text", "");
 $("palette-mono").onclick = () => {
   const p = $("icon-color-text").value.trim() || "#FF5C2C"; setBothColors(p, "");
 };
@@ -1226,6 +1294,10 @@ let rechargeWatchTimer = null;
 function renderAmountGrid(presets) {
   const grid = $("amount-grid");
   grid.innerHTML = "";
+  if (!presets || !presets.length) return;
+  // 若当前默认金额不在 presets 里，回落到第一个，避免没有任何卡片高亮
+  const matchPreset = presets.some((y) => y * 100 === rechargeAmountCents);
+  if (!matchPreset) rechargeAmountCents = presets[0] * 100;
   presets.forEach((y) => {
     const card = document.createElement("button");
     card.type = "button";
@@ -1304,10 +1376,10 @@ $("recharge-submit").onclick = async () => {
     const data = await api("/api/recharge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_key: accessKey, amount_yuan: yuan }),
+      body: JSON.stringify({ amount_yuan: yuan }),
     });
-    // 记录待轮询订单，存在 sessionStorage
-    sessionStorage.setItem("image2_pending_pay", data.out_trade_no);
+    // 记录待轮询订单（多笔并发不互相覆盖）
+    pendingAdd(data.out_trade_no);
     closeRecharge();
     // 跳转收银台
     window.location.href = data.pay_url;
@@ -1316,6 +1388,28 @@ $("recharge-submit").onclick = async () => {
     toast("发起支付失败：" + e.message, "error");
   }
 };
+
+/* 待轮询订单的 sessionStorage 集合工具：跨标签/跨刷新可记多笔 */
+const PENDING_KEY = "image2_pending_pay";
+function pendingRead() {
+  const raw = sessionStorage.getItem(PENDING_KEY);
+  if (!raw) return [];
+  // 兼容旧格式（单串）
+  if (raw[0] !== "[") return [raw];
+  try { const a = JSON.parse(raw); return Array.isArray(a) ? a : []; } catch { return []; }
+}
+function pendingWrite(list) {
+  if (!list.length) sessionStorage.removeItem(PENDING_KEY);
+  else sessionStorage.setItem(PENDING_KEY, JSON.stringify(list));
+}
+function pendingAdd(no) {
+  const list = pendingRead();
+  if (!list.includes(no)) list.push(no);
+  pendingWrite(list);
+}
+function pendingRemove(no) {
+  pendingWrite(pendingRead().filter((x) => x !== no));
+}
 
 /* 轮询 */
 function startWatching(outTradeNo) {
@@ -1327,17 +1421,22 @@ function startWatching(outTradeNo) {
   let elapsed = 0;
   const tick = async () => {
     if (elapsed >= 300) {
-      stopWatching(); sessionStorage.removeItem("image2_pending_pay"); toast("超时未收到付款，如已付款请联系管理员", "error");
+      stopWatching();
+      pendingRemove(outTradeNo);
+      toast("超时未收到付款，如已付款请联系管理员", "error");
       return;
     }
     try {
       const r = await api(`/api/payment/${outTradeNo}`);
       if (r.status === "paid") {
         stopWatching();
-        sessionStorage.removeItem("image2_pending_pay");
+        pendingRemove(outTradeNo);
         toast(`充值成功 ¥${(r.amount_cents / 100).toFixed(2)}`, "success");
         await refreshMe();
         refreshPayments();
+        // 还有别的待轮询订单则继续看下一笔
+        const next = pendingRead()[0];
+        if (next) startWatching(next);
         return;
       }
     } catch (e) { /* 静默，下一轮再试 */ }
@@ -1364,19 +1463,15 @@ if (accessKey) {
     body: JSON.stringify({ access_key: accessKey }),
   }).then((me) => {
     showApp(me);
-    // 检查是否有待轮询的充值订单
+    // 检查是否有待轮询的充值订单（URL 优先，其次 storage）
     const u = new URLSearchParams(location.search);
     const fromUrl = u.get("recharge");
-    const fromStorage = sessionStorage.getItem("image2_pending_pay");
-    const pending = fromUrl || fromStorage;
-    if (pending) {
-      // 清掉 URL 参数避免刷新残留
-      if (fromUrl) {
-        history.replaceState(null, "", location.pathname);
-      }
-      sessionStorage.setItem("image2_pending_pay", pending);
-      startWatching(pending);
+    if (fromUrl) {
+      pendingAdd(fromUrl);
+      history.replaceState(null, "", location.pathname);
     }
+    const next = pendingRead()[0];
+    if (next) startWatching(next);
   }).catch(() => logout());
 }
 </script>
