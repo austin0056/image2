@@ -66,6 +66,8 @@ class Settings:
     upstream_model: str
     price_cents: int
     price_recraft_cents: int
+    price_cad_cents: int
+    cad_exec_timeout: int
 
     # 鉴权
     admin_password: str
@@ -118,6 +120,9 @@ def load_settings() -> Settings:
         upstream_model=_env("UPSTREAM_MODEL", "gpt-image-2"),
         price_cents=int(_env("PRICE_CENTS", "5")),
         price_recraft_cents=int(_env("PRICE_RECRAFT_CENTS", "300")),
+        # 文字转 CAD：默认 ¥10，因生成慢、算力重。CAD_EXEC_TIMEOUT 为子进程执行上限（秒）。
+        price_cad_cents=int(_env("PRICE_CAD_CENTS", "1000")),
+        cad_exec_timeout=int(_env("CAD_EXEC_TIMEOUT", "60")),
         admin_password=_env("ADMIN_PASSWORD", required=True),
         session_secret=session_secret,
         database_url=_resolve_database_url(),

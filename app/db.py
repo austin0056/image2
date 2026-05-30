@@ -1,6 +1,7 @@
 """PostgreSQL 接入层。提供连接池、建表、用户与生成记录的增删改查。"""
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import datetime, timezone
 from typing import Any
@@ -77,6 +78,10 @@ async def _init_schema() -> None:
         )
         await con.execute(
             "ALTER TABLE generations ADD COLUMN IF NOT EXISTS result_svg TEXT"
+        )
+        # CAD 产物：{"step": key, "stl": key, "glb": key}
+        await con.execute(
+            "ALTER TABLE generations ADD COLUMN IF NOT EXISTS result_files JSONB"
         )
         # payments 表
         await con.execute(
@@ -314,6 +319,15 @@ async def mark_success_svg(generation_id: int, svg_text: str) -> None:
         )
 
 
+async def mark_success_cad(generation_id: int, files: dict[str, str]) -> None:
+    """CAD 成功：写入 result_files（{"step":key,"stl":key,"glb":key}）。"""
+    async with pool().acquire() as con:
+        await con.execute(
+            "UPDATE generations SET status='success', result_files=$1::jsonb WHERE id=$2",
+            json.dumps(files), generation_id,
+        )
+
+
 async def mark_failed_and_refund(generation_id: int, user_id: int, cost_cents: int, err: str) -> int:
     """失败：标记记录 + 退款。返回退款后余额。
 
@@ -337,7 +351,7 @@ async def list_history(user_id: int, limit: int = 30) -> list[dict[str, Any]]:
         rows = await con.fetch(
             """
             SELECT id, prompt, size, has_ref, ref_key, result_key, result_svg,
-                   kind, cost_cents, status, error, created_at
+                   result_files, kind, cost_cents, status, error, created_at
             FROM generations
             WHERE user_id=$1
             ORDER BY id DESC
@@ -358,10 +372,10 @@ async def delete_generation(generation_id: int, user_id: int | None = None) -> d
     """删除一条记录。user_id 不为 None 时必须属于该用户。返回被删记录。"""
     async with pool().acquire() as con:
         if user_id is None:
-            row = await con.fetchrow("DELETE FROM generations WHERE id=$1 RETURNING ref_key, result_key", generation_id)
+            row = await con.fetchrow("DELETE FROM generations WHERE id=$1 RETURNING ref_key, result_key, result_files", generation_id)
         else:
             row = await con.fetchrow(
-                "DELETE FROM generations WHERE id=$1 AND user_id=$2 RETURNING ref_key, result_key",
+                "DELETE FROM generations WHERE id=$1 AND user_id=$2 RETURNING ref_key, result_key, result_files",
                 generation_id, user_id,
             )
     return _row_to_dict(row)
@@ -604,7 +618,7 @@ async def admin_list_generations(
 ) -> list[dict[str, Any]]:
     sql = (
         "SELECT g.id, g.user_id, u.name AS user_name, g.prompt, g.size, g.has_ref, "
-        "g.ref_key, g.result_key, g.result_svg, g.kind, g.cost_cents, g.status, g.error, g.created_at "
+        "g.ref_key, g.result_key, g.result_svg, g.result_files, g.kind, g.cost_cents, g.status, g.error, g.created_at "
         "FROM generations g LEFT JOIN users u ON u.id = g.user_id WHERE 1=1"
     )
     args: list[Any] = []

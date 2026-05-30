@@ -7,7 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260527a" />
+<link rel="stylesheet" href="/static/app.css?v=20260531a" />
+<!-- 文字转 CAD：浏览器端 3D 预览（GLB） -->
+<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 </head>
 <body>
 <!-- SVG sprite: 账户流水使用 -->
@@ -95,6 +97,10 @@
         <button class="sidebar-tab tab-btn" data-tab="icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
           图标矢量
+        </button>
+        <button class="sidebar-tab tab-btn" data-tab="cad">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>
+          文字转 CAD
         </button>
       </div>
 
@@ -284,6 +290,28 @@
           <div class="gen-status" id="icon-status"></div>
         </div>
       </div>
+
+      <!-- =============== Pane: 文字转 CAD =============== -->
+      <div id="pane-cad" class="tab-pane hidden">
+        <div class="panel-section">
+          <div class="panel-title">需求描述</div>
+          <textarea id="cad-prompt" placeholder="例：一个 20mm 立方体支架，中心打 M3 通孔，四角 R3 圆角…"></textarea>
+        </div>
+        <div class="panel-section">
+          <div class="hint">
+            由 AI 编写 build123d 代码并在服务器执行，产出可下载的 STEP / STL / GLB，并在右侧 3D 预览。
+            适合机械零件、支架、外壳等参数化实体。生成较慢（约 30–90 秒）。
+          </div>
+        </div>
+        <div class="sidebar-foot">
+          <button class="gen-btn" id="cad-generate-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>
+            生成 CAD
+            <span class="price-pill">¥<span id="price-cad-pill">10.00</span></span>
+          </button>
+          <div class="gen-status" id="cad-status"></div>
+        </div>
+      </div>
     </aside>
 
     <!-- =============== 中央画布 =============== -->
@@ -427,8 +455,11 @@ let lastSvgText = "";
 let currentEngine = "claude";
 let priceClaudeCents = 5;
 let priceRecraftCents = 300;
+let priceCadCents = 1000;
+let lastCadFiles = null;
 
 const $ = (id) => document.getElementById(id);
+const activeTab = () => (document.querySelector(".tab-btn.active")?.dataset.tab) || "image";
 
 function escapeHtml(s) {
   if (s == null) return "";
@@ -519,6 +550,8 @@ async function showApp(me) {
   $("price-img-pill").textContent = (me.price_cents / 100).toFixed(2);
   priceClaudeCents = me.price_cents || 5;
   priceRecraftCents = me.price_recraft_cents || 300;
+  priceCadCents = me.price_cad_cents || 1000;
+  $("price-cad-pill").textContent = (priceCadCents / 100).toFixed(2);
   updateIconPriceLabel();
   await refreshHistory();
 }
@@ -548,7 +581,14 @@ async function refreshHistory() {
       div.className = "h-item";
       const thumb = document.createElement("div");
       thumb.className = "thumb";
-      if (it.result_url) {
+      if (it.kind === "cad" && it.result_url) {
+        thumb.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>';
+        const files = { step: `/cad/${it.id}.step`, stl: `/cad/${it.id}.stl`, glb: `/cad/${it.id}.glb` };
+        div.onclick = () => {
+          document.querySelector('.tab-btn[data-tab="cad"]')?.click();
+          showCadResult(files, null);
+        };
+      } else if (it.result_url) {
         const img = document.createElement("img");
         img.src = it.result_url + "?access_key=" + encodeURIComponent(accessKey);
         thumb.appendChild(img);
@@ -563,7 +603,8 @@ async function refreshHistory() {
       p.className = "p"; p.title = it.prompt; p.textContent = it.prompt;
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = (it.kind === "icon" ? "SVG" : "IMG") + " · " + (it.status === "failed" ? "失败" : "完成");
+      const kindLabel = it.kind === "icon" ? "SVG" : (it.kind === "cad" ? "CAD" : "IMG");
+      meta.textContent = kindLabel + " · " + (it.status === "failed" ? "失败" : "完成");
       info.appendChild(p); info.appendChild(meta);
 
       const del = document.createElement("button");
@@ -673,7 +714,7 @@ function renderLedgerItem(it) {
     title = "余额充值";
     sub = it.pay_type ? (it.pay_type === "alipay" ? "支付宝" : it.pay_type) : "支付宝";
   } else if (it.kind === "consume") {
-    title = it.gen_kind === "icon" ? "图标生成" : "图片生成";
+    title = it.gen_kind === "icon" ? "图标生成" : (it.gen_kind === "cad" ? "CAD 生成" : "图片生成");
     sub = (it.prompt || "").slice(0, 40);
   } else if (it.kind === "refund") {
     title = "生成失败退款";
@@ -812,8 +853,10 @@ function showErrorState(message) {
     </div>`;
   const retry = $("retry-generate");
   if (retry) retry.onclick = () => {
-    const isIcon = !$("pane-icon").classList.contains("hidden");
-    isIcon ? generateIcon() : generate();
+    const t = activeTab();
+    if (t === "icon") generateIcon();
+    else if (t === "cad") generateCad();
+    else generate();
   };
   $("canvas-foot").classList.add("hidden");
 }
@@ -878,6 +921,37 @@ function showSvgResult(svgText, downloadName) {
   $("result-info").textContent = `viewBox: ${sizeStr} · ${bytes} 字节`;
   $("canvas-foot").classList.remove("hidden");
   applyPreviewSize(getActiveSize());
+  applyResultBg();
+}
+function showCadResult(files, meta) {
+  lastCadFiles = files;
+  const ak = encodeURIComponent(accessKey);
+  $("empty-state").classList.add("hidden");
+  $("result-card").className = "result-frame cad-mode";
+  $("result-card").classList.remove("hidden");
+  $("result-card").style.cssText = "";
+  const wrap = $("result-wrap");
+  wrap.className = "";
+  wrap.innerHTML = `
+    <model-viewer src="${files.glb}?access_key=${ak}" camera-controls auto-rotate
+      shadow-intensity="1" exposure="1.1" interaction-prompt="none"
+      style="width:100%;height:100%;background:transparent;"></model-viewer>`;
+  // 隐藏 SVG/PNG 相关工具按钮
+  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.add("hidden"));
+  $("size-toolbar").style.display = "none";
+  $("svg-source").classList.add("hidden");
+  // 用工具栏的下载位放 STEP 主下载
+  const dl = $("download-link");
+  dl.href = files.step + "?access_key=" + ak;
+  dl.download = "model.step";
+  dl.textContent = "↓ STEP";
+  dl.classList.remove("hidden");
+  // 其余格式放到底部 actions
+  $("result-info").textContent = "CAD" + (meta && meta.plan ? " · " + meta.plan : "");
+  $("result-actions").innerHTML = `
+    <a class="btn ghost small" href="${files.stl}?access_key=${ak}" download="model.stl">↓ STL</a>
+    <a class="btn ghost small" href="${files.glb}?access_key=${ak}" download="model.glb">↓ GLB</a>`;
+  $("canvas-foot").classList.remove("hidden");
   applyResultBg();
 }
 function getActiveSize() {
@@ -978,6 +1052,33 @@ async function generateIcon() {
   } catch (e) {
     showErrorState(e.message);
     $("icon-status").textContent = "";
+    toast("生成失败：" + e.message, "error");
+    refreshMe();
+  } finally { btn.disabled = false; }
+}
+
+/* ===================== 文字转 CAD ===================== */
+async function generateCad() {
+  const prompt = $("cad-prompt").value.trim();
+  if (!prompt) { toast("需求描述不能为空", "error"); return; }
+  const fd = new FormData();
+  fd.append("access_key", accessKey);
+  fd.append("prompt", prompt);
+
+  const btn = $("cad-generate-btn");
+  btn.disabled = true;
+  showLoading("CAD 建模中", "AI 写代码并执行 · 约 30-90 秒");
+  $("cad-status").textContent = "提交中...";
+  try {
+    const data = await api("/api/generate-cad", { method: "POST", body: fd });
+    $("balance").textContent = fmtMoney(data.balance_cents);
+    showCadResult(data.files, data.meta);
+    $("cad-status").textContent = "完成";
+    toast("生成成功", "success");
+    refreshHistory();
+  } catch (e) {
+    showErrorState(e.message);
+    $("cad-status").textContent = "";
     toast("生成失败：" + e.message, "error");
     refreshMe();
   } finally { btn.disabled = false; }
@@ -1136,6 +1237,7 @@ $("logout").onclick = (e) => { e.preventDefault(); logout(); };
 // 生成
 $("generate-btn").onclick = generate;
 $("icon-generate-btn").onclick = generateIcon;
+$("cad-generate-btn").onclick = generateCad;
 
 // 工具栏
 $("download-png-from-svg").onclick = () => svgToPngDownload("icon", 1024);
@@ -1225,6 +1327,7 @@ document.querySelectorAll(".tab-btn").forEach((b) => {
     const t = b.dataset.tab;
     $("pane-image").classList.toggle("hidden", t !== "image");
     $("pane-icon").classList.toggle("hidden", t !== "icon");
+    $("pane-cad").classList.toggle("hidden", t !== "cad");
   };
 });
 
@@ -1249,9 +1352,10 @@ $("size").onchange = () => {
 document.querySelectorAll(".empty-state .ex").forEach((b) => {
   b.onclick = () => {
     const txt = b.dataset.ex;
-    const isIcon = !$("pane-icon").classList.contains("hidden");
-    $(isIcon ? "icon-prompt" : "prompt").value = txt;
-    $(isIcon ? "icon-prompt" : "prompt").focus();
+    const t = activeTab();
+    const target = t === "icon" ? "icon-prompt" : (t === "cad" ? "cad-prompt" : "prompt");
+    $(target).value = txt;
+    $(target).focus();
   };
 });
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 from typing import Any
 
@@ -11,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
-from . import db, storage, upstream, upstream_claude, upstream_recraft
+from . import db, storage, upstream, upstream_cad, upstream_claude, upstream_recraft
 from .config import settings
 from .deps import current_user, require_user
 
@@ -60,6 +61,7 @@ async def api_me(body: KeyBody) -> dict[str, Any]:
         "balance_cents": user["balance_cents"],
         "price_cents": image_provider["price_cents"],
         "price_recraft_cents": settings.price_recraft_cents,
+        "price_cad_cents": settings.price_cad_cents,
     }
 
 
@@ -174,6 +176,9 @@ async def api_history(user: dict[str, Any] = Depends(current_user)) -> dict[str,
         if kind == "icon":
             item["result_url"] = f"/icons/{r['id']}.svg" if r["result_svg"] else None
             item["ref_url"] = None
+        elif kind == "cad":
+            item["result_url"] = f"/cad/{r['id']}.glb" if r.get("result_files") else None
+            item["ref_url"] = None
         else:
             item["result_url"] = f"/files/result/{r['id']}" if r["result_key"] else None
             item["ref_url"] = f"/files/ref/{r['id']}" if r["ref_key"] else None
@@ -209,6 +214,7 @@ async def api_delete_generation(
     if not deleted:
         raise HTTPException(404, "记录不存在或不属于你")
     keys = [k for k in (deleted.get("ref_key"), deleted.get("result_key")) if k]
+    keys.extend(_cad_keys(deleted.get("result_files")).values())
     if keys:
         await storage.delete_keys(keys)
     return {"ok": True}
@@ -337,3 +343,104 @@ async def get_icon_svg(
         io.BytesIO(gen["result_svg"].encode("utf-8")),
         media_type="image/svg+xml",
     )
+
+
+# ---------- 文字转 CAD ----------
+
+CAD_FORMATS: dict[str, tuple[str, bool]] = {
+    # fmt: (content_type, inline)  inline=True 浏览器内联（model-viewer 取 glb），否则触发下载
+    "glb": ("model/gltf-binary", True),
+    "step": ("application/step", False),
+    "stl": ("model/stl", False),
+}
+
+
+def _cad_keys(result_files: Any) -> dict[str, str]:
+    """把 generations.result_files(JSONB，asyncpg 返回 str)解析为 {fmt: key}。"""
+    if not result_files:
+        return {}
+    if isinstance(result_files, str):
+        try:
+            result_files = json.loads(result_files)
+        except (ValueError, TypeError):
+            return {}
+    if not isinstance(result_files, dict):
+        return {}
+    return {k: v for k, v in result_files.items() if isinstance(v, str) and v}
+
+
+@router.post("/api/generate-cad")
+async def api_generate_cad(
+    access_key: str = Form(...),
+    prompt: str = Form(...),
+) -> dict[str, Any]:
+    user = await require_user(access_key)
+    prompt = prompt.strip()
+    if not prompt:
+        raise HTTPException(400, "prompt 不能为空")
+
+    cost = settings.price_cad_cents
+    gen_id, balance_after = await db.try_charge_and_create(
+        user_id=user["id"],
+        prompt=prompt,
+        size="cad",
+        has_ref=False,
+        ref_key=None,
+        cost_cents=cost,
+        kind="cad",
+    )
+    if gen_id is None:
+        raise HTTPException(402, "余额不足")
+
+    try:
+        artifacts, meta = await upstream_cad.generate_cad(prompt)
+        files: dict[str, str] = {}
+        for fmt, data in artifacts.items():
+            content_type = CAD_FORMATS.get(fmt, ("application/octet-stream", False))[0]
+            key = storage.make_key_ext("cad", fmt)
+            await storage.upload_bytes(key, data, content_type=content_type)
+            files[fmt] = key
+        await db.mark_success_cad(gen_id, files)
+        return {
+            "generation_id": gen_id,
+            "preview_url": f"/cad/{gen_id}.glb",
+            "files": {
+                "step": f"/cad/{gen_id}.step",
+                "stl": f"/cad/{gen_id}.stl",
+                "glb": f"/cad/{gen_id}.glb",
+            },
+            "balance_cents": balance_after,
+            "meta": meta,
+        }
+    except upstream_cad.CadError as e:
+        log.warning("generate-cad 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
+        new_balance = await db.mark_failed_and_refund(gen_id, user["id"], cost, str(e))
+        raise HTTPException(502, f"生成失败：{e}. 已退款。当前余额 {new_balance} 分")
+    except Exception as e:
+        log.exception("generate-cad 内部异常 user=%s gen=%s", user["id"], gen_id)
+        new_balance = await db.mark_failed_and_refund(gen_id, user["id"], cost, str(e))
+        raise HTTPException(500, f"内部错误：{e}. 已退款。当前余额 {new_balance} 分")
+
+
+@router.get("/cad/{generation_id}.{fmt}")
+async def get_cad_file(
+    generation_id: int,
+    fmt: str,
+    user: dict[str, Any] = Depends(current_user),
+):
+    fmt = fmt.lower()
+    if fmt not in CAD_FORMATS:
+        raise HTTPException(404)
+    gen = await db.get_generation(generation_id)
+    if not gen or gen["user_id"] != user["id"]:
+        raise HTTPException(404)
+    keys = _cad_keys(gen.get("result_files"))
+    key = keys.get(fmt)
+    if not key:
+        raise HTTPException(404)
+    body, _ = await storage.fetch_object(key)
+    content_type, inline = CAD_FORMATS[fmt]
+    headers = {}
+    if not inline:
+        headers["Content-Disposition"] = f'attachment; filename="model-{generation_id}.{fmt}"'
+    return StreamingResponse(io.BytesIO(body), media_type=content_type, headers=headers)

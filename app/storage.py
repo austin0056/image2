@@ -48,6 +48,15 @@ def make_key(kind: str) -> str:
     return f"{kind}/{_today_prefix()}/{uuid.uuid4().hex}.png"
 
 
+def make_key_ext(kind: str, ext: str) -> str:
+    """生成任意前缀 + 扩展名的对象 key，例如 cad/2026/05/31/<uuid>.step。
+
+    用于 CAD 产物（STEP/STL/GLB）等非 PNG 文件。ext 不带点。
+    """
+    ext = ext.lstrip(".").lower()
+    return f"{kind}/{_today_prefix()}/{uuid.uuid4().hex}.{ext}"
+
+
 async def upload_bytes(key: str, data: bytes, content_type: str = "image/png") -> None:
     def _do() -> None:
         _client().put_object(
