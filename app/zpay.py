@@ -31,7 +31,11 @@ def md5_sign(params: dict, key: str) -> str:
 
 
 def verify_sign(params: dict, key: str) -> bool:
-    """校验回调里的 sign 是否合法。大小写不敏感，但官方文档指定小写。"""
+    """校验回调里的 sign 是否合法。
+
+    md5 hexdigest 本身就是小写。这里把传入的 sign 也转小写做对比，
+    以兼容个别上游/代理把签名转大写的情况；不影响安全性。
+    """
     given = (params.get("sign") or "").strip().lower()
     if not given:
         return False

@@ -10,4 +10,4 @@ python-dotenv==1.0.1
 rapidfuzz>=3.0
 # 文字转 CAD：build123d 会拉入 cadquery-ocp（OpenCascade 原生 wheel，体积数百 MB）。
 # Linux 容器通常还需系统库 libgl1/libglu1-mesa/libxrender1，详见 README 部署说明。
-build123d==0.9.1
+build123d==0.10.0

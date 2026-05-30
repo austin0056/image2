@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import time
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import db, zpay
 from .config import settings
@@ -17,12 +19,31 @@ from .deps import current_user
 router = APIRouter()
 log = logging.getLogger("payment")
 
+# out_trade_no 格式由本服务生成，仅允许这种字符。回跳参数据此校验。
+_OUT_TRADE_NO_RE = re.compile(r"^r_\d{1,12}_\d{13}_[0-9a-f]{4}$")
+
 
 # ---------- 请求模型 ----------
 
 class RechargeBody(BaseModel):
-    access_key: str = Field(..., min_length=8)
-    amount_yuan: float = Field(..., gt=0)
+    # 接收字符串/数字均可，内部统一为 Decimal，避免浮点 0.01 漂移。
+    amount_yuan: Decimal = Field(..., gt=0)
+
+    @field_validator("amount_yuan", mode="before")
+    @classmethod
+    def _coerce(cls, v):
+        try:
+            return Decimal(str(v))
+        except (InvalidOperation, TypeError):
+            raise ValueError("金额格式不正确")
+
+    @field_validator("amount_yuan")
+    @classmethod
+    def _max_2_decimals(cls, v: Decimal) -> Decimal:
+        # 不允许超过 2 位小数（0.01 元最小粒度）
+        if v != v.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+            raise ValueError("金额最多保留 2 位小数")
+        return v
 
 
 # ---------- 工具 ----------
@@ -45,14 +66,13 @@ def _gen_out_trade_no(user_id: int) -> str:
 # ---------- /api/recharge：发起 ----------
 
 @router.post("/api/recharge")
-async def create_recharge(body: RechargeBody) -> dict:
+async def create_recharge(
+    body: RechargeBody,
+    user: dict = Depends(current_user),
+) -> dict:
     _ensure_zpay_configured()
 
-    user = await db.get_user_by_key(body.access_key)
-    if not user:
-        raise HTTPException(401, "access key 无效")
-
-    cents = int(round(body.amount_yuan * 100))
+    cents = int((body.amount_yuan * 100).to_integral_value(rounding=ROUND_HALF_UP))
     if cents < settings.recharge_min_cents:
         raise HTTPException(400, f"金额不能小于 ¥{settings.recharge_min_cents/100:.2f}")
     if cents > settings.recharge_max_cents:
@@ -81,20 +101,21 @@ async def create_recharge(body: RechargeBody) -> dict:
 
 # ---------- /api/payment/notify：服务端异步通知 ----------
 
-def _notify_dict(req: Request) -> dict:
-    """同时支持 GET query 和 POST form 两种回调。"""
+def _query_dict(req: Request) -> dict:
+    """只取 query。zpay 的 GET 通知走这里；POST form 在调用方兜底解析。"""
     return {k: v for k, v in req.query_params.multi_items()}
 
 
 @router.api_route("/api/payment/notify", methods=["GET", "POST"])
 async def payment_notify(req: Request) -> PlainTextResponse:
     """zpay 异步通知。必须在 5 秒内返回纯文本 'success' 才算成功。"""
-    params = _notify_dict(req)
+    params = _query_dict(req)
     if not params:
         try:
             form = await req.form()
             params = {k: str(v) for k, v in form.items()}
-        except Exception:
+        except Exception as e:
+            log.warning("zpay notify: form parse failed: %s", e)
             params = {}
 
     raw = urlencode(params)
@@ -152,11 +173,14 @@ async def payment_notify(req: Request) -> PlainTextResponse:
 
 @router.get("/api/payment/return")
 async def payment_return(req: Request):
-    """支付完成后浏览器跳回。带 out_trade_no 参数转给前端轮询。"""
+    """支付完成后浏览器跳回。带 out_trade_no 参数转给前端轮询。
+
+    out_trade_no 必须匹配本服务生成的格式，避免成为开放重定向参数注入面。
+    """
     out_trade_no = req.query_params.get("out_trade_no", "")
     target = "/static/user.html"
-    if out_trade_no:
-        target += f"?recharge={out_trade_no}"
+    if out_trade_no and _OUT_TRADE_NO_RE.match(out_trade_no):
+        target += "?" + urlencode({"recharge": out_trade_no})
     return RedirectResponse(url=target, status_code=302)
 
 
@@ -179,7 +203,6 @@ async def get_payment_status(
         "status": p["status"],
         "amount_cents": p["amount_cents"],
         "paid_at": p["paid_at"].isoformat() if p.get("paid_at") else None,
-        "balance_cents": user["balance_cents"] if p["status"] != "paid" else None,
     })
 
 
@@ -192,32 +215,6 @@ async def recharge_presets() -> dict:
         "min_yuan": settings.recharge_min_cents / 100,
         "max_yuan": settings.recharge_max_cents / 100,
         "enabled": bool(settings.zpay_pid and settings.zpay_key and settings.public_base_url),
-    }
-
-
-# ---------- /api/payments：用户充值历史 ----------
-
-@router.get("/api/payments")
-async def my_payments(
-    limit: int = 50,
-    user: dict = Depends(current_user),
-) -> dict:
-    limit = max(1, min(limit, 200))
-    rows = await db.list_user_payments(user["id"], limit=limit)
-    return {
-        "items": [
-            {
-                "id": r["id"],
-                "out_trade_no": r["out_trade_no"],
-                "trade_no": r["trade_no"] or "",
-                "amount_cents": r["amount_cents"],
-                "status": r["status"],
-                "pay_type": r["pay_type"],
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None,
-            }
-            for r in rows
-        ]
     }
 
 
@@ -281,7 +278,7 @@ async def my_ledger(
             "ref_id": r["ref_id"],
             "ref_no": r.get("ref_no") or "",
             "pay_type": r.get("pay_type") or "",
-            "prompt": r.get("prompt") or "",
+            "prompt": (r.get("prompt") or "")[:200],
             "gen_kind": r.get("gen_kind") or "",
             "error": (r.get("error") or "")[:200],
             "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
@@ -301,5 +298,4 @@ async def my_ledger(
         },
         "filter": actual_filter,
         "limit": limit,
-        "truncated": len(items) >= limit,
     }
