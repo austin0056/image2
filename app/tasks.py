@@ -14,6 +14,9 @@ log = logging.getLogger("image2.tasks")
 
 # 生成任务超时 5 分钟（含上游耗时 + 缓冲）
 GEN_TIMEOUT_SECONDS = 5 * 60
+# CAD 异步任务较慢（LLM 写码 + build123d 执行 + 可能重修，内部预算 ~300s），
+# 给更长的窗口，避免清扫任务在后台任务仍在跑时误退款。
+CAD_GEN_TIMEOUT_SECONDS = 10 * 60
 # 充值订单超时 30 分钟（zpay 收银台允许长一些）
 PAY_TIMEOUT_SECONDS = 30 * 60
 # 每轮扫描间隔
@@ -24,9 +27,11 @@ async def _reap_pending_generations() -> int:
     """把 pending 超过 5 分钟的 generation 标 failed 并退款。返回处理条数。"""
     sql_select = (
         "SELECT id, user_id, cost_cents FROM generations "
-        "WHERE status='pending' AND created_at < now() - INTERVAL '%d seconds' "
-        "LIMIT 100"
-    ) % GEN_TIMEOUT_SECONDS
+        "WHERE status='pending' AND ("
+        "  (kind <> 'cad' AND created_at < now() - INTERVAL '%d seconds') "
+        "  OR (kind = 'cad' AND created_at < now() - INTERVAL '%d seconds')"
+        ") LIMIT 100"
+    ) % (GEN_TIMEOUT_SECONDS, CAD_GEN_TIMEOUT_SECONDS)
     async with db.pool().acquire() as con:
         rows = await con.fetch(sql_select)
     if not rows:

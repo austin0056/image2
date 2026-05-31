@@ -369,11 +369,46 @@ def _cad_keys(result_files: Any) -> dict[str, str]:
     return {k: v for k, v in result_files.items() if isinstance(v, str) and v}
 
 
+def _cad_file_urls(generation_id: int) -> dict[str, str]:
+    return {
+        "step": f"/cad/{generation_id}.step",
+        "stl": f"/cad/{generation_id}.stl",
+        "glb": f"/cad/{generation_id}.glb",
+    }
+
+
+# 持有后台任务引用，避免被 GC 提前回收
+_cad_jobs: set[asyncio.Task] = set()
+
+
+async def _run_cad_job(gen_id: int, user_id: int, cost: int, prompt: str) -> None:
+    """后台执行 CAD 生成。成功写 result_files，失败退款。绝不向外抛异常。"""
+    try:
+        artifacts, meta = await upstream_cad.generate_cad(prompt)
+        files: dict[str, str] = {}
+        for fmt, data in artifacts.items():
+            content_type = CAD_FORMATS.get(fmt, ("application/octet-stream", False))[0]
+            key = storage.make_key_ext("cad", fmt)
+            await storage.upload_bytes(key, data, content_type=content_type)
+            files[fmt] = key
+        await db.mark_success_cad(gen_id, files)
+        log.info("cad job 成功 user=%s gen=%s repairs=%s", user_id, gen_id, meta.get("repairs"))
+    except upstream_cad.CadError as e:
+        log.warning("cad job 上游失败 user=%s gen=%s: %s", user_id, gen_id, e)
+        await db.mark_failed_and_refund(gen_id, user_id, cost, str(e))
+    except Exception as e:
+        log.exception("cad job 内部异常 user=%s gen=%s", user_id, gen_id)
+        await db.mark_failed_and_refund(gen_id, user_id, cost, str(e))
+
+
 @router.post("/api/generate-cad")
 async def api_generate_cad(
     access_key: str = Form(...),
     prompt: str = Form(...),
 ) -> dict[str, Any]:
+    # CAD 生成耗时长（LLM 写码 + build123d 执行 + 可能重修），常超过 Cloudflare 100s
+    # 上限导致 524。因此改为异步：立即扣费 + 建 pending 记录 + 起后台任务，前端轮询
+    # /api/generation/{id} 取结果。
     user = await require_user(access_key)
     prompt = prompt.strip()
     if not prompt:
@@ -392,34 +427,41 @@ async def api_generate_cad(
     if gen_id is None:
         raise HTTPException(402, "余额不足")
 
-    try:
-        artifacts, meta = await upstream_cad.generate_cad(prompt)
-        files: dict[str, str] = {}
-        for fmt, data in artifacts.items():
-            content_type = CAD_FORMATS.get(fmt, ("application/octet-stream", False))[0]
-            key = storage.make_key_ext("cad", fmt)
-            await storage.upload_bytes(key, data, content_type=content_type)
-            files[fmt] = key
-        await db.mark_success_cad(gen_id, files)
-        return {
-            "generation_id": gen_id,
-            "preview_url": f"/cad/{gen_id}.glb",
-            "files": {
-                "step": f"/cad/{gen_id}.step",
-                "stl": f"/cad/{gen_id}.stl",
-                "glb": f"/cad/{gen_id}.glb",
-            },
-            "balance_cents": balance_after,
-            "meta": meta,
-        }
-    except upstream_cad.CadError as e:
-        log.warning("generate-cad 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
-        new_balance = await db.mark_failed_and_refund(gen_id, user["id"], cost, str(e))
-        raise HTTPException(502, f"生成失败：{e}. 已退款。当前余额 {new_balance} 分")
-    except Exception as e:
-        log.exception("generate-cad 内部异常 user=%s gen=%s", user["id"], gen_id)
-        new_balance = await db.mark_failed_and_refund(gen_id, user["id"], cost, str(e))
-        raise HTTPException(500, f"内部错误：{e}. 已退款。当前余额 {new_balance} 分")
+    task = asyncio.create_task(_run_cad_job(gen_id, user["id"], cost, prompt))
+    _cad_jobs.add(task)
+    task.add_done_callback(_cad_jobs.discard)
+
+    return {
+        "generation_id": gen_id,
+        "status": "pending",
+        "balance_cents": balance_after,
+    }
+
+
+@router.get("/api/generation/{generation_id}")
+async def api_generation_status(
+    generation_id: int,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """查询单条生成记录状态（前端轮询用，主要服务 CAD 异步任务）。"""
+    gen = await db.get_generation(generation_id)
+    if not gen or gen["user_id"] != user["id"]:
+        raise HTTPException(404)
+    kind = gen.get("kind") or "image"
+    out: dict[str, Any] = {
+        "id": gen["id"],
+        "kind": kind,
+        "status": gen["status"],
+        "error": gen.get("error"),
+    }
+    if kind == "cad" and gen["status"] == "success" and _cad_keys(gen.get("result_files")):
+        out["files"] = _cad_file_urls(gen["id"])
+        out["preview_url"] = f"/cad/{gen['id']}.glb"
+    elif kind == "icon" and gen.get("result_svg"):
+        out["result_url"] = f"/icons/{gen['id']}.svg"
+    elif gen.get("result_key"):
+        out["result_url"] = f"/files/result/{gen['id']}"
+    return out
 
 
 @router.get("/cad/{generation_id}.{fmt}")

@@ -8,8 +8,21 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/static/app.css?v=20260531a" />
-<!-- 文字转 CAD：浏览器端 3D 预览（GLB） -->
-<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+<!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
+<script type="module">
+  const CDNS = [
+    "https://registry.npmmirror.com/@google/model-viewer/4.2.0/files/dist/model-viewer.min.js",
+    "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
+    "https://unpkg.com/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
+  ];
+  (async () => {
+    for (const url of CDNS) {
+      try { await import(url); return; }
+      catch (e) { console.warn("model-viewer 加载失败，尝试下一个 CDN:", url, e); }
+    }
+    console.error("model-viewer 所有 CDN 均加载失败，3D 预览不可用（STEP/STL 下载不受影响）");
+  })();
+</script>
 </head>
 <body>
 <!-- SVG sprite: 账户流水使用 -->
@@ -1067,19 +1080,49 @@ async function generateCad() {
 
   const btn = $("cad-generate-btn");
   btn.disabled = true;
-  showLoading("CAD 建模中", "AI 写代码并执行 · 约 30-90 秒");
+  showLoading("CAD 建模中", "AI 写代码并在服务器执行 · 约 1-3 分钟，请耐心等待");
   $("cad-status").textContent = "提交中...";
   try {
+    // 提交后立即返回 pending（绕开 Cloudflare 100s 524），随后轮询结果
     const data = await api("/api/generate-cad", { method: "POST", body: fd });
     $("balance").textContent = fmtMoney(data.balance_cents);
-    showCadResult(data.files, data.meta);
-    $("cad-status").textContent = "完成";
-    toast("生成成功", "success");
+    const id = data.generation_id;
     refreshHistory();
+    const started = Date.now();
+    const MAX_MS = 6 * 60 * 1000;
+    while (true) {
+      await new Promise((r) => setTimeout(r, 3000));
+      let s;
+      try { s = await api(`/api/generation/${id}`); }
+      catch (e) { continue; }  // 偶发网络抖动忽略，继续轮询
+      if (s.status === "success" && s.files) {
+        showCadResult(s.files, { plan: "" });
+        $("cad-status").textContent = "完成";
+        toast("生成成功", "success");
+        refreshHistory();
+        break;
+      }
+      if (s.status === "failed") {
+        showErrorState(s.error || "生成失败");
+        $("cad-status").textContent = "";
+        toast("生成失败：" + (s.error || ""), "error");
+        refreshMe();
+        refreshHistory();
+        break;
+      }
+      const sec = Math.round((Date.now() - started) / 1000);
+      $("cad-status").textContent = `生成中… 已等待 ${sec}s`;
+      if (Date.now() - started > MAX_MS) {
+        showErrorState("生成超时，请稍后在「历史」里查看结果");
+        $("cad-status").textContent = "";
+        toast("等待超时，结果可能仍在生成，请稍后看历史", "error");
+        break;
+      }
+    }
   } catch (e) {
     showErrorState(e.message);
     $("cad-status").textContent = "";
-    toast("生成失败：" + e.message, "error");
+    toast("提交失败：" + e.message, "error");
     refreshMe();
   } finally { btn.disabled = false; }
 }
