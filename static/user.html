@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260531a" />
+<link rel="stylesheet" href="/static/app.css?v=20260531b" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -140,6 +140,7 @@
 
         <div class="panel-section">
           <div class="panel-title">输出参数</div>
+          <div class="panel-grid-2" style="grid-template-columns:1.5fr 1fr;">
           <div class="panel-row">
             <label>尺寸</label>
             <select id="size">
@@ -172,6 +173,7 @@
               <option value="low">Low</option>
               <option value="auto">Auto</option>
             </select>
+          </div>
           </div>
         </div>
 
@@ -272,6 +274,7 @@
 
         <div class="panel-section">
           <div class="panel-title">颜色</div>
+          <div class="panel-grid-2">
           <div class="panel-row">
             <label>主色 Primary</label>
             <div class="color-row">
@@ -289,6 +292,7 @@
               <button class="color-clear" id="icon-color2-clear" type="button">×</button>
             </div>
             <div class="swatches" id="color2-swatches"></div>
+          </div>
           </div>
           <div class="palette-actions">
             <button class="btn secondary small" id="palette-mono" type="button">单色</button>
