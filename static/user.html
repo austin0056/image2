@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260531c" />
+<link rel="stylesheet" href="/static/app.css?v=20260531d" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -396,18 +396,13 @@
       <button class="btn ghost small" id="close-history">×</button>
     </div>
     <div class="hd-tabs">
-      <button class="hd-tab active" data-htab="gen">作品</button>
-      <button class="hd-tab" data-htab="pay">账户流水</button>
+      <button class="hd-tab active" data-htab="gen">生成历史</button>
+      <button class="hd-tab" data-htab="pay">充值记录</button>
     </div>
     <div class="hd-list" id="history" data-pane="gen">
       <div class="dim" id="history-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">还没有生成记录</div>
     </div>
     <div class="hd-list hidden" id="payments" data-pane="pay">
-      <div class="ledger-filters">
-        <button class="ledger-chip active" data-lf="all">全部</button>
-        <button class="ledger-chip" data-lf="recharge">充值</button>
-        <button class="ledger-chip" data-lf="consume_refund">消费与退款</button>
-      </div>
       <div class="ledger-summary" id="ledger-summary"></div>
       <div id="ledger-list"></div>
       <div class="dim" id="payments-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">加载中…</div>
@@ -590,7 +585,14 @@ async function refreshHistory() {
     const box = $("history");
     box.innerHTML = "";
     if (!data.items.length) {
-      box.innerHTML = '<div class="dim" id="history-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">还没有生成记录</div>';
+      box.innerHTML = `
+        <div class="pay-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+          </svg>
+          <div class="pay-empty-title">还没有生成记录</div>
+          <div class="pay-empty-sub">在左侧输入提示词开始创作</div>
+        </div>`;
       return;
     }
     for (const it of data.items) {
@@ -620,15 +622,16 @@ async function refreshHistory() {
       p.className = "p"; p.title = it.prompt; p.textContent = it.prompt;
       const meta = document.createElement("div");
       meta.className = "meta";
-      const kindLabel = it.kind === "icon" ? "SVG" : (it.kind === "cad" ? "CAD" : "IMG");
-      let metaText = kindLabel + " · " + (it.status === "failed" ? "失败" : "完成");
-      if (it.kind !== "icon" && it.kind !== "cad" && it.ref_count > 0) metaText += ` · ${it.ref_count}图参考`;
-      meta.textContent = metaText;
+      const kindLabel = it.kind === "icon" ? "SVG 图标" : (it.kind === "cad" ? "CAD 模型" : "图片");
+      const failed = it.status === "failed";
+      let extra = kindLabel;
+      if (it.kind !== "icon" && it.kind !== "cad" && it.ref_count > 0) extra += ` · ${it.ref_count}图参考`;
+      meta.innerHTML = `<span class="h-badge ${failed ? "fail" : "ok"}">${failed ? "失败" : "完成"}</span><span class="h-meta-txt">${escapeHtml(extra)}</span>`;
       info.appendChild(p); info.appendChild(meta);
 
       const del = document.createElement("button");
-      del.className = "btn ghost small";
-      del.style.cssText = "padding:0;width:24px;height:24px;";
+      del.className = "h-del";
+      del.title = "删除记录";
       del.textContent = "×";
       del.onclick = async (e) => {
         e.stopPropagation();
@@ -644,8 +647,8 @@ async function refreshHistory() {
   } catch {}
 }
 
-let ledgerFilter = "all";
 async function refreshPayments() { return refreshLedger(); }
+// 充值记录：只展示充值（消费/退款已在「生成历史」里，避免重复）
 async function refreshLedger() {
   const list = $("ledger-list");
   const empty = $("payments-empty");
@@ -653,40 +656,39 @@ async function refreshLedger() {
   if (!list) return;
   list.innerHTML = "";
   if (summary) summary.innerHTML = "";
-  if (empty) { empty.style.display = ""; empty.textContent = "加载中…"; }
+  if (empty) { empty.style.display = ""; empty.style.color = ""; empty.textContent = "加载中…"; }
   try {
-    if (empty) empty.style.color = "";
-    const qs = ledgerFilter === "all" ? "" : "?type=" + ledgerFilter;
-    const data = await api("/api/ledger" + qs);
+    const data = await api("/api/ledger?type=recharge");
     if (!data.items.length) {
       list.innerHTML = `
         <div class="pay-empty">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M3 6h18M3 12h18M3 18h12"/>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
           </svg>
-          <div class="pay-empty-title">暂无流水</div>
-          <div class="pay-empty-sub">充值、消费与退款记录会出现在这里</div>
+          <div class="pay-empty-title">还没有充值记录</div>
+          <div class="pay-empty-sub">点击右上角「+ 充值」给账户充值</div>
         </div>`;
       if (empty) empty.style.display = "none";
       return;
     }
     if (empty) empty.style.display = "none";
 
-    // 汇总
-    let inSum = 0, outSum = 0;
-    for (const it of data.items) {
-      if (it.delta_cents > 0) inSum += it.delta_cents;
-      else if (it.delta_cents < 0) outSum += -it.delta_cents;
+    // 汇总：累计成功充值（优先用后端 summary，兜底用本地求和）
+    let paid = data.summary ? (data.summary.income_cents || 0) : 0;
+    let paidCount = 0;
+    if (!paid) {
+      for (const it of data.items) if (it.status === "paid") { paid += it.amount_cents; }
     }
-    if (summary && (inSum || outSum)) {
+    for (const it of data.items) if (it.status === "paid") paidCount++;
+    if (summary) {
       summary.innerHTML = `
         <div class="led-stat">
-          <span class="led-stat-label">本次显示入账</span>
-          <span class="led-stat-val income">+¥${(inSum / 100).toFixed(2)}</span>
+          <span class="led-stat-label">累计成功充值</span>
+          <span class="led-stat-val income">¥${(paid / 100).toFixed(2)}</span>
         </div>
         <div class="led-stat">
-          <span class="led-stat-label">本次显示出账</span>
-          <span class="led-stat-val expense">-¥${(outSum / 100).toFixed(2)}</span>
+          <span class="led-stat-label">成功笔数</span>
+          <span class="led-stat-val">${paidCount}</span>
         </div>`;
     }
 
@@ -717,70 +719,43 @@ async function refreshLedger() {
 }
 
 function renderLedgerItem(it) {
+  // 充值记录专用：状态 paid / pending / expired
   const div = document.createElement("div");
-  const sign = it.delta_cents > 0 ? "income" : (it.delta_cents < 0 ? "expense" : "neutral");
-  div.className = `led-item is-${it.kind} status-${it.status} ${sign}`;
+  const sign = it.status === "paid" ? "income" : "neutral";
+  div.className = `led-item is-recharge status-${it.status} ${sign}`;
   const amt = (Math.abs(it.amount_cents) / 100).toFixed(2);
-  const deltaStr = it.delta_cents > 0 ? `+¥${amt}` : (it.delta_cents < 0 ? `-¥${amt}` : `¥${amt}`);
+  const amtStr = it.status === "paid" ? `+¥${amt}` : `¥${amt}`;
   const t = formatPayTime(it.occur_at);
   const tFull = (it.occur_at || "").replace("T", " ").slice(0, 19);
-  const icon = ledgerIcon(it.kind);
-
-  // 根据 kind 构造 title / sub（后端不返回这两个字段）
-  let title = "";
-  let sub = "";
-  if (it.kind === "recharge") {
-    title = "余额充值";
-    sub = it.pay_type ? (it.pay_type === "alipay" ? "支付宝" : it.pay_type) : "支付宝";
-  } else if (it.kind === "consume") {
-    title = it.gen_kind === "icon" ? "图标生成" : (it.gen_kind === "cad" ? "CAD 生成" : "图片生成");
-    sub = (it.prompt || "").slice(0, 40);
-  } else if (it.kind === "refund") {
-    title = "生成失败退款";
-    sub = (it.error || "").slice(0, 40);
-  }
+  const payLabel = it.pay_type ? (it.pay_type === "alipay" ? "支付宝" : it.pay_type) : "支付宝";
 
   let action = "";
-  if (it.kind === "recharge" && it.status === "pending") {
+  if (it.status === "pending") {
     action = `<button class="led-resume" data-no="${it.ref_no}">查询状态</button>`;
-  } else if (it.kind === "recharge" && it.status === "expired") {
+  } else if (it.status === "expired") {
     action = `<span class="led-tag">已过期</span>`;
-  } else if (it.kind === "consume" && it.status === "pending") {
-    action = `<span class="led-tag pending-tag">进行中</span>`;
-  } else if (it.kind === "refund") {
-    action = `<span class="led-tag refund-tag">退款</span>`;
+  } else if (it.status === "paid") {
+    action = `<span class="led-tag paid-tag">已到账</span>`;
   }
-  const subSafe = escapeHtml(sub);
+
   div.innerHTML = `
-    <div class="led-icon">${icon}</div>
+    <div class="led-icon">${ledgerIcon()}</div>
     <div class="led-body">
       <div class="led-title-row">
-        <span class="led-title">${escapeHtml(title)}</span>
+        <span class="led-title">余额充值</span>
         ${action}
       </div>
-      <div class="led-sub" title="${tFull}">${subSafe ? subSafe + " · " : ""}${t}</div>
+      <div class="led-sub" title="${tFull}">${payLabel} · ${t}</div>
     </div>
-    <div class="led-amt">${deltaStr}</div>
+    <div class="led-amt">${amtStr}</div>
   `;
-  // 按钮事件
   const btn = div.querySelector(".led-resume");
-  if (btn) {
-    btn.onclick = () => {
-      startWatching(btn.dataset.no);
-    };
-  }
+  if (btn) btn.onclick = () => startWatching(btn.dataset.no);
   return div;
 }
 
-function ledgerIcon(kind) {
-  if (kind === "recharge") {
-    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`;
-  }
-  if (kind === "refund") {
-    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>`;
-  }
-  // consume
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>`;
+function ledgerIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`;
 }
 
 function formatDayLabel(day) {
@@ -1451,16 +1426,6 @@ document.querySelectorAll(".hd-tab").forEach((t) => {
     $("history").classList.toggle("hidden", which !== "gen");
     $("payments").classList.toggle("hidden", which !== "pay");
     if (which === "pay") refreshLedger();
-  };
-});
-
-// 流水筛选 chip
-document.querySelectorAll(".ledger-chip").forEach((c) => {
-  c.onclick = () => {
-    document.querySelectorAll(".ledger-chip").forEach((x) => x.classList.remove("active"));
-    c.classList.add("active");
-    ledgerFilter = c.dataset.lf;
-    refreshLedger();
   };
 });
 

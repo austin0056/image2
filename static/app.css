@@ -669,7 +669,7 @@ input[type="range"] {
    ============================================================ */
 .history-drawer {
   position: fixed; right: 0; top: var(--topbar-h); bottom: 0;
-  width: 320px;
+  width: 380px;
   background: var(--c-surface);
   border-left: 1px solid var(--c-line);
   transform: translateX(100%);
@@ -689,7 +689,8 @@ input[type="range"] {
   display: grid; gap: var(--s-2);
 }
 .h-item {
-  display: flex; gap: 10px; padding: 8px;
+  position: relative;
+  display: flex; align-items: center; gap: 10px; padding: 8px;
   border-radius: var(--r-md);
   cursor: pointer; transition: background var(--t-fast);
 }
@@ -703,7 +704,27 @@ input[type="range"] {
 .h-item .info { flex: 1; min-width: 0; }
 .h-item .info .p { font-size: 12.5px; color: var(--c-text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.h-item .info .meta { font-size: 11px; color: var(--c-text-mute); margin-top: 2px; }
+.h-item .info .meta {
+  display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  font-size: 11px; color: var(--c-text-mute);
+}
+.h-badge {
+  flex-shrink: 0; font-size: 10px; font-weight: 500;
+  padding: 1px 7px; border-radius: var(--r-pill);
+}
+.h-badge.ok { background: rgba(22,163,74,.12); color: #16A34A; }
+.h-badge.fail { background: rgba(220,38,38,.12); color: var(--c-danger); }
+.h-meta-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-del {
+  flex-shrink: 0; width: 26px; height: 26px; padding: 0;
+  border: 0; background: transparent; color: var(--c-text-mute);
+  border-radius: 6px; font-size: 17px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; opacity: 0;
+  transition: all var(--t-fast);
+}
+.h-item:hover .h-del { opacity: 1; }
+.h-del:hover { background: rgba(220,38,38,.12); color: var(--c-danger); }
+@media (hover: none) { .h-del { opacity: 1; } }
 
 /* 抽屉 Tab */
 .history-drawer .hd-tabs {
@@ -723,23 +744,7 @@ input[type="range"] {
   font-weight: 500;
 }
 
-/* 账户流水 ============================================ */
-.ledger-filters {
-  display: flex; gap: 6px; padding: 0 var(--s-3);
-  margin-bottom: var(--s-2); flex-shrink: 0;
-}
-.ledger-chip {
-  border: 1px solid var(--c-line); background: var(--c-surface);
-  padding: 5px 12px; border-radius: var(--r-pill);
-  font-size: 11.5px; color: var(--c-text-2);
-  cursor: pointer; transition: all var(--t-fast);
-}
-.ledger-chip:hover { border-color: var(--c-text-mute); color: var(--c-text); }
-.ledger-chip.active {
-  background: var(--c-text); color: var(--c-surface);
-  border-color: var(--c-text);
-}
-
+/* 充值记录 ============================================ */
 .ledger-summary {
   display: flex; gap: 8px; padding: 10px 12px; margin: 0 var(--s-3) var(--s-2);
   border-radius: var(--r-md);
@@ -834,6 +839,7 @@ input[type="range"] {
 }
 .led-tag.pending-tag { background: rgba(217,119,6,.12); color: #D97706; }
 .led-tag.refund-tag { background: rgba(140,59,255,.10); color: #8C3BFF; }
+.led-tag.paid-tag { background: rgba(22,163,74,.12); color: #16A34A; }
 
 /* 充值记录列表 ============================================ */
 .pay-empty {
