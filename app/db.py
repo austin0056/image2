@@ -129,6 +129,7 @@ async def _init_schema() -> None:
             defaults[f"provider.{name}.base"] = d["base"]
             defaults[f"provider.{name}.key"] = d["key"]
             defaults[f"provider.{name}.model"] = d["model"]
+            defaults[f"provider.{name}.api_style"] = d.get("api_style", "auto")
         for key, value in defaults.items():
             await con.execute(
                 """
@@ -214,10 +215,13 @@ async def update_image_provider_settings(
 # ----- 通用上游提供商设置（claude / recraft / chart） -----
 
 def _PROVIDER_DEFAULTS() -> dict[str, dict[str, str]]:
+    # api_style：chart 走 OpenAI 兼容文本接口，可选 auto/chat/responses。
+    # auto = 按模型名自动判别（gpt-5.x / o系列 → Responses API，否则 Chat Completions）。
+    # claude/recraft 不读取该字段（claude 用 Messages API，recraft 是图像接口），留默认即可。
     return {
-        "claude": {"base": settings.claude_base, "key": settings.claude_key, "model": settings.claude_model},
-        "recraft": {"base": settings.recraft_base, "key": settings.recraft_key, "model": settings.recraft_model},
-        "chart": {"base": settings.chart_base, "key": settings.chart_key, "model": settings.chart_model},
+        "claude": {"base": settings.claude_base, "key": settings.claude_key, "model": settings.claude_model, "api_style": "auto"},
+        "recraft": {"base": settings.recraft_base, "key": settings.recraft_key, "model": settings.recraft_model, "api_style": "auto"},
+        "chart": {"base": settings.chart_base, "key": settings.chart_key, "model": settings.chart_model, "api_style": "auto"},
     }
 
 PROVIDER_NAMES = ("claude", "recraft", "chart")
@@ -228,7 +232,7 @@ async def get_provider(name: str, *, reveal_key: bool = True) -> dict[str, Any]:
     if name not in PROVIDER_NAMES:
         raise ValueError(f"未知 provider: {name}")
     d = _PROVIDER_DEFAULTS()[name]
-    keys = {k: f"provider.{name}.{k}" for k in ("base", "key", "model")}
+    keys = {k: f"provider.{name}.{k}" for k in ("base", "key", "model", "api_style")}
     async with pool().acquire() as con:
         rows = await con.fetch(
             "SELECT key, value FROM app_settings WHERE key = ANY($1::text[])",
@@ -242,16 +246,19 @@ async def get_provider(name: str, *, reveal_key: bool = True) -> dict[str, Any]:
         "key_set": bool(raw_key),
         "key_preview": _mask_secret(raw_key),
         "model": values.get(keys["model"]) or d["model"] or "",
+        "api_style": (values.get(keys["api_style"]) or d.get("api_style") or "auto"),
     }
 
 
-async def update_provider(name: str, *, base: str, model: str, key: str | None = None) -> dict[str, Any]:
+async def update_provider(name: str, *, base: str, model: str, key: str | None = None, api_style: str | None = None) -> dict[str, Any]:
     if name not in PROVIDER_NAMES:
         raise ValueError(f"未知 provider: {name}")
     updates = {
         f"provider.{name}.base": base.rstrip("/"),
         f"provider.{name}.model": model,
     }
+    if api_style is not None:
+        updates[f"provider.{name}.api_style"] = api_style if api_style in ("auto", "chat", "responses") else "auto"
     if key is not None:
         updates[f"provider.{name}.key"] = key
     async with pool().acquire() as con:

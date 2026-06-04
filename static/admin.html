@@ -177,13 +177,19 @@
       <div class="prov-block" data-prov="chart">
         <div class="prov-head">
           <div><strong>公式 / 理工科图表（gpt-5.5）</strong>
-            <div class="dim" style="font-size:12px;">OpenAI 兼容 chat/completions；模型出 matplotlib 代码，服务器渲染成 PNG。</div></div>
+            <div class="dim" style="font-size:12px;">OpenAI 兼容文本接口；模型出 matplotlib 代码，服务器渲染成 PNG。gpt-5.5 这类模型走 Responses API。</div></div>
           <span class="dim prov-state">加载中…</span>
         </div>
         <div class="kv-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end;">
           <div><label class="prov-label">API Base URL</label><input class="prov-base" type="text" placeholder="https://api.86gamestore.com/v1" /></div>
           <div><label class="prov-label">模型</label><input class="prov-model" type="text" placeholder="gpt-5.5" /></div>
           <div><label class="prov-label">API Key</label><input class="prov-key" type="password" placeholder="留空则不修改现有密钥" autocomplete="new-password" /></div>
+          <div><label class="prov-label">API 风格</label>
+            <select class="prov-style">
+              <option value="auto">自动（按模型判别）</option>
+              <option value="responses">Responses API（gpt-5.x / o 系列）</option>
+              <option value="chat">Chat Completions</option>
+            </select></div>
         </div>
         <div style="margin-top:12px;"><button class="btn primary prov-save">保存</button></div>
       </div>
@@ -390,6 +396,8 @@ async function loadProvider(name) {
     const s = await api(`/api/admin/settings/provider/${name}`);
     block.querySelector(".prov-base").value = s.base || "";
     block.querySelector(".prov-model").value = s.model || "";
+    const sty = block.querySelector(".prov-style");
+    if (sty) sty.value = s.api_style || "auto";
     const k = block.querySelector(".prov-key");
     k.value = "";
     k.placeholder = s.key_set ? `留空则保留现有密钥（${s.key_preview}）` : "尚未设置，请输入 API Key";
@@ -404,12 +412,15 @@ async function saveProvider(name) {
   const model = block.querySelector(".prov-model").value.trim();
   const key = block.querySelector(".prov-key").value.trim();
   if (!base || !model) { toast("请填写 Base URL 和模型", "error"); return; }
+  const sty = block.querySelector(".prov-style");
+  const payload = { base, model, key: key || null };
+  if (sty) payload.api_style = sty.value;
   const btn = block.querySelector(".prov-save");
   btn.disabled = true;
   try {
     await api(`/api/admin/settings/provider/${name}`, {
       method: "PATCH",
-      body: JSON.stringify({ base, model, key: key || null }),
+      body: JSON.stringify(payload),
     });
     toast("已保存", "success");
     await loadProvider(name);

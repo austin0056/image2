@@ -43,6 +43,7 @@ class ProviderSettingsBody(BaseModel):
     base: str = Field(..., min_length=1, max_length=500)
     model: str = Field(..., min_length=1, max_length=200)
     key: str | None = Field(default=None, max_length=5000)  # 空/None=不改
+    api_style: str | None = Field(default=None, max_length=20)  # auto/chat/responses；None=不改
 
 
 @router.post("/api/admin/login")
@@ -121,7 +122,10 @@ async def admin_update_provider(name: str, body: ProviderSettingsBody) -> dict[s
     if not model:
         raise HTTPException(400, "模型名不能为空")
     key = body.key.strip() if body.key is not None else ""
-    return await db.update_provider(name, base=base, model=model, key=key or None)
+    api_style = body.api_style.strip().lower() if body.api_style is not None else None
+    if api_style is not None and api_style not in ("auto", "chat", "responses"):
+        raise HTTPException(400, "api_style 必须是 auto / chat / responses")
+    return await db.update_provider(name, base=base, model=model, key=key or None, api_style=api_style)
 
 
 @router.get("/api/admin/payments", dependencies=[Depends(require_admin)])
