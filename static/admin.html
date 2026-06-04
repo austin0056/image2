@@ -149,13 +149,20 @@
       <div class="prov-block" data-prov="claude">
         <div class="prov-head">
           <div><strong>文字转CAD / 矢量·快速（Claude 中转）</strong>
-            <div class="dim" style="font-size:12px;">Anthropic /v1/messages 协议；CAD 与图标「快速模式」共用此配置。</div></div>
+            <div class="dim" style="font-size:12px;">CAD 与图标「快速模式」共用此配置。自动适配 Anthropic /v1/messages 或 OpenAI /chat/completions（中转无 messages 协议时自动回退）。</div></div>
           <span class="dim prov-state">加载中…</span>
         </div>
         <div class="kv-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end;">
           <div><label class="prov-label">API Base URL</label><input class="prov-base" type="text" placeholder="https://claude.moon9.cloud" /></div>
           <div><label class="prov-label">模型</label><input class="prov-model" type="text" placeholder="kiro-opus-4.7" /></div>
           <div><label class="prov-label">API Key</label><input class="prov-key" type="password" placeholder="留空则不修改现有密钥" autocomplete="new-password" /></div>
+          <div><label class="prov-label">API 风格</label>
+            <select class="prov-style">
+              <option value="auto">自动（按模型判别 + 404 回退）</option>
+              <option value="messages">Anthropic Messages（/v1/messages）</option>
+              <option value="chat">OpenAI Chat（/chat/completions）</option>
+              <option value="responses">OpenAI Responses（/responses）</option>
+            </select></div>
         </div>
         <div style="margin-top:12px;"><button class="btn primary prov-save">保存</button></div>
       </div>

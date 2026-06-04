@@ -12,7 +12,7 @@ import re
 
 import httpx
 
-from . import cad_runner, db
+from . import cad_runner, upstream_claude
 
 log = logging.getLogger("image2.cad")
 
@@ -81,74 +81,16 @@ def _extract_plan(text: str) -> str:
 
 
 async def _call_claude(messages: list[dict]) -> str:
-    """调一次 Claude /v1/messages，返回文本内容。配置取自管理面板(DB)。"""
-    cfg = await db.get_provider("claude")
-    if not cfg["key"]:
-        raise CadError("Claude 中转未配置（管理面板 → AI 提供商 → 文字转CAD/矢量）")
-    url = f"{cfg['base']}/v1/messages"
-    body = {
-        "model": cfg["model"],
-        "max_tokens": 4096,
-        "system": _SYSTEM_PROMPT,
-        "messages": messages,
-    }
-    headers = {
-        "x-api-key": cfg["key"],
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    last_err = "未知错误"
-    data = None
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        for attempt in range(_HTTP_RETRIES + 1):
-            try:
-                resp = await client.post(url, json=body, headers=headers)
-            except httpx.HTTPError as e:
-                last_err = f"连接失败: {e}"
-                log.warning("cad claude attempt %d 连接失败: %s", attempt + 1, e)
-                if attempt < _HTTP_RETRIES:
-                    continue
-                raise CadError(last_err)
-            if resp.status_code in (502, 503, 504):
-                last_err = f"messages {resp.status_code}: {resp.text[:300]}"
-                log.warning("cad claude attempt %d %s", attempt + 1, last_err)
-                if attempt < _HTTP_RETRIES:
-                    continue
-                raise CadError(last_err)
-            if resp.status_code >= 400:
-                log.error("cad claude %s: %s", resp.status_code, resp.text[:1000])
-                try:
-                    j = resp.json()
-                    msg = j.get("error", {}).get("message") or j.get("message") or resp.text[:300]
-                except Exception:
-                    msg = resp.text[:300]
-                raise CadError(f"messages {resp.status_code}: {msg}")
-            try:
-                data = resp.json()
-                break
-            except Exception:
-                log.error("cad claude 返回非 JSON: %s", resp.text[:500])
-                raise CadError("上游返回非 JSON")
-        else:
-            raise CadError(last_err)
+    """调一次 Claude 中转，返回文本内容。
 
-    if data is None:
-        raise CadError(last_err)
-
-    content = data.get("content")
-    text = ""
-    if isinstance(content, list):
-        for blk in content:
-            if isinstance(blk, dict) and blk.get("type") == "text":
-                text += blk.get("text", "")
-    if not text:
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            text = choices[0].get("message", {}).get("content", "")
-    if not text:
-        log.error("cad claude 返回不含文本: %s", str(data)[:500])
-        raise CadError("上游返回不含文本内容")
-    return text
+    通过 upstream_claude.complete_text 统一处理协议：自适配 Anthropic Messages /
+    OpenAI Chat / Responses，并在 404/405 时自动回退——解决“messages 404: Not Found”
+    （中转只提供 OpenAI /chat/completions 时）。配置取自管理面板 provider="claude"。
+    """
+    return await upstream_claude.complete_text(
+        _SYSTEM_PROMPT, messages,
+        max_tokens=4096, timeout=_TIMEOUT, retries=_HTTP_RETRIES, err_cls=CadError,
+    )
 
 
 async def generate_cad(prompt: str, *, max_repairs: int = 1) -> tuple[dict[str, bytes], dict]:

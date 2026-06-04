@@ -25,6 +25,128 @@ class ClaudeError(RuntimeError):
     pass
 
 
+# ============================================================
+# 统一文本补全：自适配 Anthropic Messages / OpenAI Chat / Responses
+# CAD 与图标都走 provider="claude"，但中转协议各家不同（很多中转只提供
+# OpenAI /chat/completions，没有 Anthropic /v1/messages → 404）。
+# 这里按 api_style + 模型名选协议，并在 404/405 时自动回退，彻底解决
+# “messages 404: Not Found”。
+# ============================================================
+def _claude_attempt_order(api_style: str, model: str) -> list[str]:
+    style = (api_style or "auto").lower()
+    if style in ("messages", "chat", "responses"):
+        return [style]
+    m = (model or "").lower()
+    if m.startswith(("gpt-5", "gpt5")) or re.match(r"^o[1-9]", m):
+        return ["responses", "chat", "messages"]
+    if any(k in m for k in ("gpt", "deepseek", "qwen", "glm", "moonshot", "kimi", "grok", "llama", "mistral", "doubao", "ernie")):
+        return ["chat", "messages", "responses"]
+    # 形似 Claude（claude/opus/sonnet/haiku/kiro）或未知：先 Anthropic，再回退 OpenAI
+    return ["messages", "chat", "responses"]
+
+
+def _extract_text_any(data: dict) -> str:
+    """从三种协议的返回里抽取助手文本。"""
+    content = data.get("content")  # Anthropic messages
+    if isinstance(content, list):
+        t = "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+        if t.strip():
+            return t
+    ot = data.get("output_text")  # OpenAI responses 便捷字段
+    if isinstance(ot, str) and ot.strip():
+        return ot
+    out = data.get("output")  # OpenAI responses 标准结构
+    if isinstance(out, list):
+        t = ""
+        for item in out:
+            if isinstance(item, dict) and item.get("type") == "message":
+                c = item.get("content")
+                if isinstance(c, list):
+                    for blk in c:
+                        if isinstance(blk, dict) and blk.get("type") in ("output_text", "text"):
+                            t += blk.get("text", "")
+                elif isinstance(c, str):
+                    t += c
+        if t.strip():
+            return t
+    choices = data.get("choices")  # OpenAI chat
+    if isinstance(choices, list) and choices:
+        c = choices[0].get("message", {}).get("content", "")
+        if isinstance(c, list):
+            c = "".join(b.get("text", "") for b in c if isinstance(b, dict))
+        if c:
+            return c
+    return ""
+
+
+def _build_request(fmt: str, base: str, model: str, key: str, system: str, messages: list[dict], max_tokens: int):
+    if fmt == "messages":
+        return (f"{base}/v1/messages",
+                {"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                {"model": model, "max_tokens": max_tokens, "system": system, "messages": messages})
+    if fmt == "responses":
+        return (f"{base}/responses",
+                {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                {"model": model, "instructions": system, "input": messages, "max_output_tokens": max(max_tokens, 4096)})
+    return (f"{base}/chat/completions",
+            {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            {"model": model, "max_tokens": max_tokens, "messages": [{"role": "system", "content": system}] + messages})
+
+
+async def complete_text(system: str, messages: list[dict], *, max_tokens: int = 4096,
+                        timeout=None, retries: int = 2, err_cls: type = ClaudeError) -> str:
+    """统一的 Claude 中转文本补全。配置取自 provider="claude"。
+
+    api_style=auto 时按模型名选协议；收到 404/405（路径不存在）时自动换另一种协议，
+    兼容只提供 OpenAI /chat/completions 的中转。
+    """
+    cfg = await db.get_provider("claude")
+    if not cfg["key"]:
+        raise err_cls("Claude 中转未配置（管理面板 → AI 提供商）")
+    base, model, key = cfg["base"], cfg["model"], cfg["key"]
+    order = _claude_attempt_order(cfg.get("api_style", "auto"), model)
+    last_err = "未知错误"
+
+    async with httpx.AsyncClient(timeout=timeout or _TIMEOUT) as client:
+        for fmt in order:
+            url, headers, body = _build_request(fmt, base, model, key, system, messages, max_tokens)
+            for attempt in range(retries + 1):
+                try:
+                    resp = await client.post(url, json=body, headers=headers)
+                except httpx.HTTPError as e:
+                    last_err = f"连接失败: {e}"
+                    if attempt < retries:
+                        continue
+                    break  # 换下一种协议
+                if resp.status_code in (404, 405):
+                    last_err = f"{fmt} {resp.status_code}: 该中转无此协议路径"
+                    log.warning("claude %s 返回 %s，自动尝试下一种协议", url, resp.status_code)
+                    break
+                if resp.status_code in (502, 503, 504):
+                    last_err = f"{fmt} {resp.status_code}: {resp.text[:200]}"
+                    if attempt < retries:
+                        continue
+                    break
+                if resp.status_code >= 400:
+                    log.error("claude %s %s: %s", fmt, resp.status_code, resp.text[:800])
+                    try:
+                        j = resp.json()
+                        msg = j.get("error", {}).get("message") or j.get("message") or resp.text[:300]
+                    except Exception:
+                        msg = resp.text[:300]
+                    raise err_cls(f"{fmt} {resp.status_code}: {msg}")
+                try:
+                    data = resp.json()
+                except Exception:
+                    raise err_cls("上游返回非 JSON")
+                text = _extract_text_any(data)
+                if text:
+                    return text
+                last_err = f"{fmt} 返回不含文本内容"
+                break  # 换下一种协议
+    raise err_cls(last_err)
+
+
 # 各图标库的简短风格定位(配合样本一起注入)
 LIBRARY_NOTES: dict[str, str] = {
     "lucide": "Lucide：viewBox=24，纯线性，stroke-width=2，圆角端点。",
@@ -198,85 +320,15 @@ async def generate_icon_svg(
 
     # 2. 构造 prompt
     dual = bool(color_primary or color_secondary) or library == "duotone"
-    url = f"{cfg['base']}/v1/messages"
-    body = {
-        "model": cfg["model"],
-        "max_tokens": 3072,
-        "system": _build_system_prompt(library, examples, dual_color=dual),
-        "messages": [
-            {
-                "role": "user",
-                "content": _build_user_prompt(
-                    prompt, library, color_primary, color_secondary, stroke_width, examples,
-                ),
-            },
-        ],
-    }
-    headers = {
-        "x-api-key": cfg["key"],
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-
-    log.info(
-        "claude POST %s model=%s library=%s dual=%s samples=%s",
-        url, cfg["model"], library, dual, sample_names,
+    log.info("claude icon model=%s library=%s dual=%s samples=%s", cfg["model"], library, dual, sample_names)
+    text = await complete_text(
+        system=_build_system_prompt(library, examples, dual_color=dual),
+        messages=[{
+            "role": "user",
+            "content": _build_user_prompt(prompt, library, color_primary, color_secondary, stroke_width, examples),
+        }],
+        max_tokens=3072,
     )
-
-    last_err = "未知错误"
-    data = None
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        for attempt in range(_MAX_RETRIES + 1):
-            try:
-                resp = await client.post(url, json=body, headers=headers)
-            except httpx.HTTPError as e:
-                last_err = f"连接失败: {e}"
-                log.warning("claude attempt %d 连接失败: %s", attempt + 1, e)
-                if attempt < _MAX_RETRIES:
-                    continue
-                raise ClaudeError(last_err)
-
-            if resp.status_code in (502, 503, 504):
-                snippet = resp.text[:300]
-                last_err = f"messages {resp.status_code}: {snippet}"
-                log.warning("claude attempt %d %s", attempt + 1, last_err)
-                if attempt < _MAX_RETRIES:
-                    continue
-                raise ClaudeError(last_err)
-
-            if resp.status_code >= 400:
-                log.error("claude %s: %s", resp.status_code, resp.text[:1000])
-                try:
-                    j = resp.json()
-                    msg = j.get("error", {}).get("message") or j.get("message") or resp.text[:300]
-                except Exception:
-                    msg = resp.text[:300]
-                raise ClaudeError(f"messages {resp.status_code}: {msg}")
-            try:
-                data = resp.json()
-                break
-            except Exception:
-                log.error("claude 返回非 JSON: %s", resp.text[:500])
-                raise ClaudeError("上游返回非 JSON")
-        else:
-            raise ClaudeError(last_err)
-
-    if data is None:
-        raise ClaudeError(last_err)
-
-    content = data.get("content")
-    text = ""
-    if isinstance(content, list):
-        for blk in content:
-            if isinstance(blk, dict) and blk.get("type") == "text":
-                text += blk.get("text", "")
-    if not text:
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            text = choices[0].get("message", {}).get("content", "")
-    if not text:
-        log.error("claude 返回不含文本: %s", str(data)[:500])
-        raise ClaudeError("上游返回不含文本内容")
 
     svg = _extract_svg(text)
     warnings = _audit_svg(svg)
