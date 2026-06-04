@@ -1,5 +1,6 @@
-"""公式/理工科图表上游：让 gpt-5.5 生成 matplotlib 代码，再用 chart_runner 子进程执行
-产出 PNG。执行失败把报错喂回模型重修。
+"""公式/理工科图表上游：让 gpt-5.5 输出 **HTML 正文片段**（支持 MathJax 公式与 Mermaid
+流程图），服务器套进固定模板存成自包含 HTML，由浏览器端渲染——排版远胜 matplotlib，
+且天然支持流程图。前端用 iframe 显示、html2canvas 导出 PNG、或直接下载 HTML。
 
 兼容两种 OpenAI 文本接口：Chat Completions(/chat/completions) 与 Responses(/responses)。
 由管理面板 provider="chart" 的 api_style 决定（auto/chat/responses）：auto 会按模型名
@@ -14,7 +15,7 @@ import re
 
 import httpx
 
-from . import chart_runner, db
+from . import db
 
 log = logging.getLogger("image2.chart")
 
@@ -27,47 +28,128 @@ class ChartError(RuntimeError):
     pass
 
 
-_SYSTEM_PROMPT = """你是科学绘图与数学公式排版专家。根据用户需求，用 Python + matplotlib 绘图。
+_SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，输出一段 **HTML 正文片段**
+（只输出 <body> 内部的内容），由浏览器渲染成排版精良的图文。
+
+# 能力与写法
+- 数学公式：用 MathJax 语法。行内 \\( ... \\) 或 $...$，独立成行 $$ ... $$ 或 \\[ ... \\]。
+- 流程图 / 时序图 / 状态图 / 类图 / 甘特图 / 饼图等：用 Mermaid，写成
+  <pre class="mermaid"> ... </pre>，例如
+  <pre class="mermaid">graph TD; A[开始] --> B{判断}; B -->|是| C[执行]; B -->|否| D[结束];</pre>
+- 普通图表（折线/柱状/散点）：可用内联 <svg> 直接绘制，或用 Mermaid 的 xychart-beta / pie。
+- 文字排版：用语义化标签 h1/h2/h3/p/ul/ol/table/figure/figcaption/blockquote/code 等。
+- 用一个 <h1> 作为整篇标题；需要时给表格加 <caption>。
 
 # 硬性约定
-- 环境已提供 `plt`(matplotlib.pyplot) 和 `np`(numpy)，也可自行 import；不要用其它第三方库。
-- 数学公式用 matplotlib 的 mathtext：在文本里写 `$...$`，例如
-  `plt.text(0.5, 0.5, r"$\\hat{n} = f/\\|f\\|$", fontsize=28, ha="center", va="center"); plt.axis("off")`。
-  不要启用 usetex（系统无 LaTeX）。
-- 图表（折线/柱状/散点/函数曲线/等高线等）要有坐标轴、标题、必要的图例；理工科风格、清晰。
-- 只画一张图（单个 figure）。不要 plt.show()、不要保存文件、不要任何文件/网络/系统调用。
-- 中文标签可能缺字体，优先用英文标注，或对纯公式用 mathtext。
+- 只输出 <body> 内部的 HTML 片段；**不要**写 <html>/<head>/<body>/<script>/<style>/<link>。
+  CSS、MathJax、Mermaid 都由外层模板统一提供，你只负责内容与结构。
+- 不要引用任何外部图片/字体/JS；不要写 onclick 等事件属性。
+- 正文用中文；公式、变量、代码保持原样。
 
-# 输出格式（严格）
-[PLAN] 一句话说明要画什么（≤30 字）。
-```python
-# 完整 matplotlib 代码
-```
+# 输出
+直接输出 HTML 片段本身（可放在 ```html 代码块里），不要任何额外解释。
 """
 
 
-def _build_repair_prompt(prev_code: str, error: str) -> str:
-    return (
-        "上一版代码执行失败，请修复后重新输出完整代码。\n\n"
-        f"# 出错代码\n```python\n{prev_code}\n```\n\n"
-        f"# 运行报错（截断）\n{error[-1200:]}\n\n"
-        "请定位根因并修正，仍按 [PLAN] + ```python``` 代码块输出完整可执行代码。"
-    )
+def _repair_prompt() -> str:
+    return ('请只输出 <body> 内的 HTML 正文片段（可含 MathJax 公式与 '
+            '<pre class="mermaid"> 流程图），不要 <html>/<head>/<script>/<style>，不要解释。')
 
 
-def extract_code(text: str) -> str:
+def extract_html(text: str) -> str:
+    """从模型回复里取出 HTML 正文片段，并剔除模型违规塞进来的 script/style/外链。"""
     if not text:
         raise ChartError("返回内容为空")
-    m = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
-    code = m.group(1).strip() if m else text.strip()
-    if "plt" not in code and "pyplot" not in code:
-        raise ChartError(f"代码里没看到 matplotlib 绘图。返回片段：{text[:300]}")
-    return code
+    m = re.search(r"```(?:html?)?\s*\n(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    frag = (m.group(1) if m else text).strip()
+    bm = re.search(r"<body[^>]*>(.*)</body>", frag, flags=re.DOTALL | re.IGNORECASE)
+    if bm:
+        frag = bm.group(1).strip()
+    frag = re.sub(r"</?(?:html|head|body)[^>]*>", "", frag, flags=re.IGNORECASE)
+    frag = re.sub(r"<script\b.*?</script>", "", frag, flags=re.DOTALL | re.IGNORECASE)
+    frag = re.sub(r"<style\b.*?</style>", "", frag, flags=re.DOTALL | re.IGNORECASE)
+    frag = re.sub(r"<link\b[^>]*>", "", frag, flags=re.IGNORECASE)
+    frag = re.sub(r"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*')", "", frag, flags=re.IGNORECASE)  # 去事件属性
+    if "<" not in frag or len(frag) < 10:
+        raise ChartError(f"未获得有效 HTML 内容。返回片段：{text[:300]}")
+    return frag
 
 
-def _extract_plan(text: str) -> str:
-    m = re.search(r"\[PLAN\]\s*(.+)", text)
-    return m.group(1).strip()[:120] if m else ""
+def wrap_html(body_fragment: str) -> str:
+    """把 LLM 的正文片段套进自包含模板（含 MathJax/Mermaid/html2canvas 与快照监听）。"""
+    return _HTML_TEMPLATE.replace("__BODY__", body_fragment)
+
+
+# 自包含 HTML 模板：浏览器端渲染。__BODY__ 处填入 LLM 的正文片段。
+# 监听 parent 的 {type:'snapshot'} 消息 → 等公式/流程图渲染完 → html2canvas 导出 PNG 回传。
+_HTML_TEMPLATE = r"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#1A1A17;
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.7;font-size:15px;padding:36px 40px;max-width:860px;margin:0 auto;
+    -webkit-font-smoothing:antialiased;}
+  h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:0 0 16px}
+  h2{font-size:19px;font-weight:650;margin:28px 0 10px}
+  h3{font-size:16px;font-weight:650;margin:22px 0 8px}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:22px}
+  li{margin:4px 0}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid #E7E6E0;padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#FAFAF8;font-weight:600}
+  caption{caption-side:top;text-align:left;color:#8C8B81;font-size:12.5px;margin-bottom:6px}
+  code{font-family:"JetBrains Mono",Consolas,monospace;background:#F4F4F1;padding:1px 5px;border-radius:4px;font-size:13px}
+  pre{background:#F7F7F4;border:1px solid #EEEDE8;border-radius:8px;padding:12px 14px;overflow:auto}
+  pre.mermaid{background:transparent;border:0;padding:0;text-align:center;overflow:visible}
+  blockquote{margin:12px 0;padding:6px 14px;border-left:3px solid #F0CDBC;color:#57564E;background:#FBEDE6;border-radius:0 6px 6px 0}
+  figure{margin:16px 0;text-align:center}
+  figcaption{color:#8C8B81;font-size:12.5px;margin-top:6px}
+  svg{max-width:100%;height:auto}
+  a{color:#D9531E}
+  hr{border:0;border-top:1px solid #E7E6E0;margin:20px 0}
+  mjx-container[display]{margin:14px 0!important}
+</style>
+<script>
+  window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},
+    svg:{fontCache:'none'},options:{enableMenu:false}};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+</head>
+<body>
+__BODY__
+<script>
+  function _waitFor(cond,ms){return new Promise(function(res){
+    var t=setInterval(function(){if(cond()){clearInterval(t);res();}},50);
+    setTimeout(function(){clearInterval(t);res();},ms||9000);});}
+  window.__renderReady=(async function(){
+    await _waitFor(function(){return window.mermaid;},9000);
+    try{mermaid.initialize({startOnLoad:false,theme:'neutral',securityLevel:'strict',htmlLabels:false,flowchart:{htmlLabels:false}});await mermaid.run();}catch(e){}
+    await _waitFor(function(){return window.MathJax&&MathJax.startup&&MathJax.startup.promise;},9000);
+    try{await MathJax.startup.promise;}catch(e){}
+    try{if(window.MathJax&&MathJax.typesetPromise)await MathJax.typesetPromise();}catch(e){}
+  })();
+  window.addEventListener('message',async function(e){
+    if(!e.data||e.data.type!=='snapshot')return;
+    try{
+      await window.__renderReady;
+      await new Promise(function(r){setTimeout(r,150);});
+      var canvas=await html2canvas(document.body,{backgroundColor:'#ffffff',scale:2,useCORS:true,
+        windowWidth:document.body.scrollWidth,windowHeight:document.body.scrollHeight});
+      parent.postMessage({type:'snapshot-result',dataUrl:canvas.toDataURL('image/png')},'*');
+    }catch(err){parent.postMessage({type:'snapshot-error',message:String(err)},'*');}
+  });
+</script>
+</body>
+</html>
+"""
 
 
 def _is_responses_model(model: str) -> bool:
@@ -198,30 +280,24 @@ async def _call_llm(messages: list[dict]) -> str:
 
 
 async def generate_chart(prompt: str, *, max_repairs: int = 1) -> tuple[bytes, dict]:
-    """返回 (png_bytes, meta)。全部尝试失败抛 ChartError。"""
+    """让模型产出 HTML 正文片段，套模板成自包含 HTML。返回 (html_bytes, meta)。
+
+    不再服务器端执行/渲染——HTML 由浏览器端渲染（公式/流程图）。模型没给出有效
+    HTML 时最多再要一次。全部失败抛 ChartError。
+    """
     messages: list[dict] = [{"role": "user", "content": f"需求：{prompt.strip()}"}]
     last_err = "未知错误"
-    plan = ""
     for attempt in range(max_repairs + 1):
         text = await _call_llm(messages)
-        if not plan:
-            plan = _extract_plan(text)
         try:
-            code = extract_code(text)
+            frag = extract_html(text)
         except ChartError as e:
             last_err = str(e)
+            log.warning("chart 未取得 HTML attempt=%d: %s", attempt + 1, last_err)
             messages.append({"role": "assistant", "content": text})
-            messages.append({"role": "user", "content": "没有找到可执行的 matplotlib 代码块，请重新按格式输出完整代码。"})
+            messages.append({"role": "user", "content": _repair_prompt()})
             continue
-        try:
-            png = await chart_runner.run_matplotlib_script(code)
-            log.info("chart 生成成功 attempt=%d plan=%s", attempt + 1, plan)
-            return png, {"repairs": attempt, "plan": plan}
-        except chart_runner.ChartRunError as e:
-            last_err = str(e)
-            log.warning("chart 执行失败 attempt=%d: %s", attempt + 1, last_err)
-            if attempt < max_repairs:
-                messages.append({"role": "assistant", "content": text})
-                messages.append({"role": "user", "content": _build_repair_prompt(code, last_err)})
-                continue
-    raise ChartError(f"多次尝试仍失败：{last_err}")
+        html = wrap_html(frag)
+        log.info("chart 生成成功 attempt=%d html_bytes=%d", attempt + 1, len(html))
+        return html.encode("utf-8"), {"format": "html"}
+    raise ChartError(f"多次尝试仍未获得 HTML：{last_err}")

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605a" />
+<link rel="stylesheet" href="/static/app.css?v=20260605b" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -60,7 +60,7 @@
         <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><div><div>AI 生图</div><div class="fd">gpt-image · 参考图编辑</div></div></div>
         <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></span><div><div>矢量图标</div><div class="fd">Claude few-shot / Recraft v4.1</div></div></div>
         <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg></span><div><div>文字转 CAD</div><div class="fd">build123d · STEP / STL / GLB</div></div></div>
-        <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg></span><div><div>公式图表</div><div class="fd">matplotlib · 科学绘图</div></div></div>
+        <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg></span><div><div>公式图表</div><div class="fd">HTML · 公式 / 流程图</div></div></div>
       </div>
     </div>
     <div class="login-main">
@@ -345,13 +345,13 @@
       <!-- =============== Pane: 公式 / 图表 =============== -->
       <div id="pane-chart" class="tab-pane hidden">
         <div class="panel-section">
-          <div class="panel-title">需求描述（公式 / 理工科图表）</div>
-          <textarea id="chart-prompt" placeholder="例：画出 y=sin(x) 与 y=cos(x) 在 0 到 2π 的曲线，标注坐标轴和图例；或：排版公式 n̂ = f/‖f‖"></textarea>
+          <div class="panel-title">需求描述（公式 / 图表 / 流程图）</div>
+          <textarea id="chart-prompt" placeholder="例：推导并排版二次方程求根公式；或：画一张「用户下单 → 支付 → 发货」的流程图；或：用表格对比 TCP 与 UDP，并配示意图"></textarea>
         </div>
         <div class="panel-section">
           <div class="hint">
-            由 gpt-5.5 编写 matplotlib 代码并在服务器渲染成 PNG。支持数学公式(LaTeX mathtext)与各类科学图表。
-            生成后可直接下载图片。生成较慢（约 30–90 秒）。
+            由 gpt-5.5 输出 HTML，浏览器端排版渲染：公式用 MathJax、流程图用 Mermaid，
+            排版精良。生成后可在右侧预览，导出 PNG 或下载 HTML。
           </div>
         </div>
         <div class="sidebar-foot">
@@ -636,6 +636,7 @@ async function refreshHistory() {
     }
     const CUBE_SVG = '<svg class="g-ph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>';
     const FAIL_SVG = '<svg class="g-ph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>';
+    const CHART_SVG = '<svg class="g-ph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg>';
 
     for (const it of data.items) {
       const failed = it.status === "failed";
@@ -654,6 +655,14 @@ async function refreshHistory() {
         card.onclick = () => {
           document.querySelector('.tab-btn[data-tab="cad"]')?.click();
           showCadResult(files, null);
+          closeDrawer();
+        };
+      } else if (it.kind === "chart" && it.result_url) {
+        media.classList.add("chart");
+        media.innerHTML = CHART_SVG;
+        card.onclick = () => {
+          document.querySelector('.tab-btn[data-tab="chart"]')?.click();
+          showHtmlResult(it.result_url, it.id);
           closeDrawer();
         };
       } else if (it.result_url) {
@@ -1022,6 +1031,51 @@ function showCadResult(files, meta) {
   $("canvas-foot").classList.remove("hidden");
   applyResultBg();
 }
+function showHtmlResult(url, id) {
+  // 公式/图表：结果是自包含 HTML，沙箱 iframe 里由浏览器渲染（MathJax 公式 + Mermaid 流程图）
+  const full = url + (url.includes("?") ? "&" : "?") + "access_key=" + encodeURIComponent(accessKey);
+  $("empty-state").classList.add("hidden");
+  $("result-card").className = "result-frame html-mode";
+  $("result-card").classList.remove("hidden");
+  $("result-card").style.cssText = "";
+  const wrap = $("result-wrap");
+  wrap.className = "";
+  wrap.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" src="${full}" title="生成结果"></iframe>`;
+  ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((idd) => $(idd).classList.add("hidden"));
+  $("size-toolbar").style.display = "none";
+  $("svg-source").classList.add("hidden");
+  const dl = $("download-link");
+  dl.href = full;
+  dl.download = "chart-" + id + ".html";
+  dl.removeAttribute("target");
+  dl.textContent = "↓ HTML";
+  dl.classList.remove("hidden");
+  $("result-info").textContent = "HTML · 公式 / 流程图";
+  $("result-actions").innerHTML = `<button class="btn ghost small" id="export-chart-png" type="button">↓ PNG</button>`;
+  $("export-chart-png").onclick = () => exportChartPng(id);
+  $("canvas-foot").classList.remove("hidden");
+  applyResultBg();
+}
+function exportChartPng(id) {
+  const iframe = document.querySelector("#result-wrap iframe.html-frame");
+  if (!iframe || !iframe.contentWindow) { toast("预览未就绪，请稍候", "error"); return; }
+  toast("正在导出 PNG…");
+  const onMsg = (e) => {
+    if (!e.data || typeof e.data !== "object") return;
+    if (e.data.type === "snapshot-result") {
+      window.removeEventListener("message", onMsg);
+      const a = document.createElement("a");
+      a.href = e.data.dataUrl; a.download = "chart-" + (id || "x") + ".png";
+      document.body.appendChild(a); a.click(); a.remove();
+    } else if (e.data.type === "snapshot-error") {
+      window.removeEventListener("message", onMsg);
+      toast("导出 PNG 失败：" + (e.data.message || "请改用「下载 HTML」"), "error");
+    }
+  };
+  window.addEventListener("message", onMsg);
+  iframe.contentWindow.postMessage({ type: "snapshot" }, "*");
+  setTimeout(() => window.removeEventListener("message", onMsg), 30000);
+}
 function getActiveSize() {
   const b = document.querySelector(".preview-size.active");
   return b ? parseInt(b.dataset.size, 10) : 420;
@@ -1220,7 +1274,7 @@ async function generateChart() {
 
   const btn = $("chart-generate-btn");
   btn.disabled = true;
-  showLoading("图表生成中", "gpt-5.5 写 matplotlib 代码并渲染 · 约 30-90 秒");
+  showLoading("正在排版…", "gpt-5.5 输出 HTML，浏览器渲染公式 / 流程图 · 约 10–40 秒");
   $("chart-status").textContent = "提交中...";
   try {
     const data = await api("/api/generate-chart", { method: "POST", body: fd });
@@ -1235,8 +1289,7 @@ async function generateChart() {
       try { s = await api(`/api/generation/${id}`); }
       catch (e) { continue; }
       if (s.status === "success" && s.result_url) {
-        showImageResult(s.result_url + "?access_key=" + encodeURIComponent(accessKey));
-        $("download-link").download = "chart-" + id + ".png";
+        showHtmlResult(s.result_url, id);
         $("status").textContent = "";
         $("chart-status").textContent = "完成";
         toast("生成成功", "success");
@@ -1503,7 +1556,7 @@ const TOOL_META = {
   image: { title: "生图", desc: "文字 / 参考图生成", icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>' },
   icon:  { title: "图标矢量", desc: "SVG 图标 / 矢量", icon: '<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>' },
   cad:   { title: "文字转 CAD", desc: "STEP / STL / GLB", icon: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/>' },
-  chart: { title: "公式 / 图表", desc: "matplotlib 渲染", icon: '<path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/>' },
+  chart: { title: "公式 / 图表", desc: "HTML 排版 · 公式 & 流程图", icon: '<path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/>' },
 };
 function setPanelHead(t) {
   const m = TOOL_META[t]; if (!m) return;

@@ -527,13 +527,13 @@ _chart_jobs: set[asyncio.Task] = set()
 
 
 async def _run_chart_job(gen_id: int, user_id: int, cost: int, prompt: str) -> None:
-    """后台执行公式/图表生成。成功写 result_key(PNG)，失败退款。"""
+    """后台执行公式/图表生成。成功写 result_key(HTML)，失败退款。"""
     try:
-        png, meta = await upstream_chart.generate_chart(prompt)
-        result_key = storage.make_key("results")
-        await storage.upload_bytes(result_key, png)
+        html_bytes, meta = await upstream_chart.generate_chart(prompt)
+        result_key = storage.make_key_ext("results", "html")
+        await storage.upload_bytes(result_key, html_bytes, content_type="text/html; charset=utf-8")
         await db.mark_success(gen_id, result_key)
-        log.info("chart job 成功 user=%s gen=%s repairs=%s", user_id, gen_id, meta.get("repairs"))
+        log.info("chart job 成功 user=%s gen=%s bytes=%s", user_id, gen_id, len(html_bytes))
     except upstream_chart.ChartError as e:
         log.warning("chart job 上游失败 user=%s gen=%s: %s", user_id, gen_id, e)
         await db.mark_failed_and_refund(gen_id, user_id, cost, str(e))

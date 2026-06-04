@@ -686,6 +686,15 @@ input[type="range"] {
   max-width: 100%; max-height: 100%;
   display: block;
 }
+/* 公式/图表：HTML 结果用大尺寸文档框 + 沙箱 iframe */
+.result-frame.html-mode {
+  width: min(900px, 94%); height: min(78vh, 880px);
+  padding: 0; background: #fff; overflow: hidden;
+  border: 1px solid var(--c-line);
+}
+.result-frame.html-mode .html-frame {
+  width: 100%; height: 100%; border: 0; display: block; background: #fff;
+}
 .result-frame.bg-dark {
   background: #1A1D24;
   box-shadow: 0 12px 40px rgba(0,0,0,.35);
@@ -802,6 +811,8 @@ input[type="range"] {
 .g-media .g-ph { width: 38%; height: 38%; color: var(--text-mute); opacity: .8; }
 .g-media.cad { background: linear-gradient(160deg,#26262A,#161618); }
 .g-media.cad .g-ph { width: 40%; height: 40%; color: var(--accent); opacity: 1; }
+.g-media.chart { background: var(--surface-2); }
+.g-media.chart .g-ph { color: var(--accent); opacity: .9; }
 .g-card.is-failed .g-media .g-ph { color: var(--danger); opacity: .7; }
 .g-chip {
   position: absolute; top: 6px; left: 6px;
