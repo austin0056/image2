@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605c" />
+<link rel="stylesheet" href="/static/app.css?v=20260605d" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先自托管（国内必达），失败回退 jsdelivr 国内边缘/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -1014,7 +1014,7 @@ function showCadResult(files, meta) {
   wrap.className = "";
   wrap.innerHTML = `
     <model-viewer id="cad-mv" src="${files.glb}?access_key=${ak}" camera-controls auto-rotate
-      shadow-intensity="1" exposure="1.1" interaction-prompt="none"
+      environment-image="neutral" shadow-intensity="1" exposure="1.05" interaction-prompt="none"
       style="width:100%;height:100%;background:transparent;"></model-viewer>
     <div id="cad-fallback" class="cad-fallback hidden"></div>`;
   // 隐藏 SVG/PNG 相关工具按钮
@@ -1055,7 +1055,13 @@ function showCadResult(files, meta) {
       </div>`;
   };
   if (mv) {
-    mv.addEventListener("load", () => { settled = true; }, { once: true });
+    mv.addEventListener("load", () => {
+      // GLB 加载成功，但可能是空模型（build123d 导出异常）→ 也给兜底
+      let empty = false;
+      try { const d = mv.getDimensions && mv.getDimensions(); if (d && (Math.abs(d.x) + Math.abs(d.y) + Math.abs(d.z)) < 1e-7) empty = true; } catch (e) {}
+      if (empty) showFallback("模型为空，无法预览");
+      else settled = true;
+    }, { once: true });
     mv.addEventListener("error", () => showFallback("3D 模型加载失败"), { once: true });
   }
   Promise.resolve(window.__mvReady).then((loaded) => {

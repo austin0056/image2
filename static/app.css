@@ -678,6 +678,8 @@ input[type="range"] {
   padding: 0;
   overflow: hidden;
   position: relative;
+  /* 3D 工作室深色底：CAD 模型多为浅色，深底才看得清（白底会“白上白”看不见） */
+  background: radial-gradient(120% 120% at 50% 18%, #40444d 0%, #24272f 46%, #15171c 100%) !important;
 }
 .result-frame.cad-mode model-viewer {
   width: 100%; height: 100%;
