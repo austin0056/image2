@@ -688,43 +688,68 @@ input[type="range"] {
   flex: 1; overflow-y: auto; padding: var(--s-3);
   display: grid; gap: var(--s-2);
 }
-.h-item {
+/* 生成历史 · 画廊卡片网格 */
+#history.hd-list {
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-content: start;
+}
+#history .pay-empty { grid-column: 1 / -1; }
+
+.g-card {
   position: relative;
-  display: flex; align-items: center; gap: 10px; padding: 8px;
-  border-radius: var(--r-md);
-  cursor: pointer; transition: background var(--t-fast);
+  border: 1px solid var(--c-line); border-radius: var(--r-lg);
+  background: var(--c-surface); overflow: hidden;
+  cursor: pointer; transition: border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
 }
-.h-item:hover { background: var(--c-surface-sunken); }
-.h-item .thumb {
-  width: 56px; height: 56px; border-radius: var(--r-sm);
-  background: var(--c-surface-sunken); flex-shrink: 0;
-  overflow: hidden; display: grid; place-items: center;
+.g-card:hover { border-color: var(--c-line-strong); box-shadow: var(--shadow-1); transform: translateY(-1px); }
+
+.g-media {
+  position: relative; aspect-ratio: 1; background: var(--c-surface-sunken);
+  display: grid; place-items: center; overflow: hidden;
 }
-.h-item .thumb img, .h-item .thumb svg { max-width: 100%; max-height: 100%; }
-.h-item .info { flex: 1; min-width: 0; }
-.h-item .info .p { font-size: 12.5px; color: var(--c-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.h-item .info .meta {
-  display: flex; align-items: center; gap: 6px; margin-top: 4px;
-  font-size: 11px; color: var(--c-text-mute);
+.g-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 图标/CAD 用 contain + 留白，不裁切 */
+.g-media.kind-icon img { object-fit: contain; padding: 18%; }
+.g-media .g-ph { width: 38%; height: 38%; color: var(--c-text-mute); opacity: .8; }
+.g-media.kind-cad .g-ph { color: var(--c-accent); opacity: .85; }
+.g-card.is-failed .g-media { background: rgba(220,38,38,.06); }
+.g-card.is-failed .g-media .g-ph { color: var(--c-danger); opacity: .7; }
+
+.g-chip {
+  position: absolute; top: 6px; left: 6px;
+  font-size: 9.5px; font-weight: 500; letter-spacing: .02em;
+  padding: 2px 7px; border-radius: var(--r-pill);
+  background: rgba(15,18,24,.6); color: #fff; backdrop-filter: blur(2px);
 }
-.h-badge {
-  flex-shrink: 0; font-size: 10px; font-weight: 500;
-  padding: 1px 7px; border-radius: var(--r-pill);
-}
-.h-badge.ok { background: rgba(22,163,74,.12); color: #16A34A; }
-.h-badge.fail { background: rgba(220,38,38,.12); color: var(--c-danger); }
-.h-meta-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.h-del {
-  flex-shrink: 0; width: 26px; height: 26px; padding: 0;
-  border: 0; background: transparent; color: var(--c-text-mute);
-  border-radius: 6px; font-size: 17px; line-height: 1; cursor: pointer;
+.g-del {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(15,18,24,.55); color: #fff;
+  font-size: 14px; line-height: 1; cursor: pointer;
   display: grid; place-items: center; opacity: 0;
   transition: all var(--t-fast);
 }
-.h-item:hover .h-del { opacity: 1; }
-.h-del:hover { background: rgba(220,38,38,.12); color: var(--c-danger); }
-@media (hover: none) { .h-del { opacity: 1; } }
+.g-card:hover .g-del { opacity: 1; }
+.g-del:hover { background: var(--c-danger); }
+@media (hover: none) { .g-del { opacity: 1; } }
+
+.g-foot { padding: 8px 10px 10px; }
+.g-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.g-badge {
+  font-size: 10px; font-weight: 500; padding: 1px 7px; border-radius: var(--r-pill);
+}
+.g-badge.ok { background: rgba(22,163,74,.12); color: #16A34A; }
+.g-badge.fail { background: rgba(220,38,38,.12); color: var(--c-danger); }
+.g-ref {
+  font-size: 10px; color: var(--c-text-mute);
+  background: var(--c-surface-sunken); padding: 1px 7px; border-radius: var(--r-pill);
+}
+.g-prompt {
+  font-size: 12px; line-height: 1.45; color: var(--c-text-2);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* 抽屉 Tab */
 .history-drawer .hd-tabs {

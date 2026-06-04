@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260531d" />
+<link rel="stylesheet" href="/static/app.css?v=20260531e" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -595,42 +595,47 @@ async function refreshHistory() {
         </div>`;
       return;
     }
+    const CUBE_SVG = '<svg class="g-ph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>';
+    const FAIL_SVG = '<svg class="g-ph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>';
+
     for (const it of data.items) {
-      const div = document.createElement("div");
-      div.className = "h-item";
-      const thumb = document.createElement("div");
-      thumb.className = "thumb";
+      const failed = it.status === "failed";
+      const kindLabel = it.kind === "icon" ? "SVG" : (it.kind === "cad" ? "CAD" : "图片");
+
+      const card = document.createElement("div");
+      card.className = "g-card" + (failed ? " is-failed" : "");
+
+      const media = document.createElement("div");
+      media.className = "g-media";
+
       if (it.kind === "cad" && it.result_url) {
-        thumb.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>';
+        media.classList.add("kind-cad");
+        media.innerHTML = CUBE_SVG;
         const files = { step: `/cad/${it.id}.step`, stl: `/cad/${it.id}.stl`, glb: `/cad/${it.id}.glb` };
-        div.onclick = () => {
+        card.onclick = () => {
           document.querySelector('.tab-btn[data-tab="cad"]')?.click();
           showCadResult(files, null);
+          $("history-drawer").classList.remove("open");
         };
       } else if (it.result_url) {
         const img = document.createElement("img");
+        img.loading = "lazy";
         img.src = it.result_url + "?access_key=" + encodeURIComponent(accessKey);
-        thumb.appendChild(img);
-        div.onclick = () => window.open(img.src, "_blank");
+        if (it.kind === "icon") media.classList.add("kind-icon");
+        media.appendChild(img);
+        card.onclick = () => window.open(img.src, "_blank");
       } else {
-        thumb.textContent = "✗";
-        thumb.style.color = "var(--c-danger)";
+        media.classList.add("is-empty");
+        media.innerHTML = FAIL_SVG;
       }
-      const info = document.createElement("div");
-      info.className = "info";
-      const p = document.createElement("div");
-      p.className = "p"; p.title = it.prompt; p.textContent = it.prompt;
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      const kindLabel = it.kind === "icon" ? "SVG 图标" : (it.kind === "cad" ? "CAD 模型" : "图片");
-      const failed = it.status === "failed";
-      let extra = kindLabel;
-      if (it.kind !== "icon" && it.kind !== "cad" && it.ref_count > 0) extra += ` · ${it.ref_count}图参考`;
-      meta.innerHTML = `<span class="h-badge ${failed ? "fail" : "ok"}">${failed ? "失败" : "完成"}</span><span class="h-meta-txt">${escapeHtml(extra)}</span>`;
-      info.appendChild(p); info.appendChild(meta);
+
+      const chip = document.createElement("span");
+      chip.className = "g-chip";
+      chip.textContent = kindLabel;
+      media.appendChild(chip);
 
       const del = document.createElement("button");
-      del.className = "h-del";
+      del.className = "g-del";
       del.title = "删除记录";
       del.textContent = "×";
       del.onclick = async (e) => {
@@ -641,8 +646,23 @@ async function refreshHistory() {
           refreshHistory();
         } catch (err) { toast("删除失败：" + err.message, "error"); }
       };
-      div.appendChild(thumb); div.appendChild(info); div.appendChild(del);
-      box.appendChild(div);
+      media.appendChild(del);
+      card.appendChild(media);
+
+      const foot = document.createElement("div");
+      foot.className = "g-foot";
+      const refTag = (it.kind !== "icon" && it.kind !== "cad" && it.ref_count > 0)
+        ? `<span class="g-ref">${it.ref_count}参考</span>` : "";
+      const promptText = it.prompt || (failed ? (it.error || "生成失败") : "");
+      foot.innerHTML = `
+        <div class="g-row">
+          <span class="g-badge ${failed ? "fail" : "ok"}">${failed ? "失败" : "完成"}</span>
+          ${refTag}
+        </div>
+        <div class="g-prompt" title="${escapeHtml(it.prompt || "")}">${escapeHtml(promptText)}</div>`;
+      card.appendChild(foot);
+
+      box.appendChild(card);
     }
   } catch {}
 }
