@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 from typing import Any
 
 import httpx
@@ -10,9 +11,24 @@ from PIL import Image
 
 from . import db
 
+log = logging.getLogger("image2.upstream")
+
 
 class UpstreamError(RuntimeError):
     pass
+
+
+def _verify_size(data: bytes, expected: str) -> None:
+    """严格核对：实际产出图片尺寸是否等于请求尺寸（auto 跳过）。不一致仅告警，不丢弃可用图。"""
+    if not expected or expected == "auto":
+        return
+    try:
+        w, h = Image.open(io.BytesIO(data)).size
+    except Exception:
+        return
+    actual = f"{w}x{h}"
+    if actual != expected:
+        log.warning("生成尺寸不一致：请求 %s，上游实际返回 %s", expected, actual)
 
 
 # 复杂/大尺寸生图在上游可能要 100-200s，这里给足读超时（生图已改为后台异步任务，
@@ -45,19 +61,23 @@ def _normalize_png(data: bytes) -> bytes:
     return out.getvalue()
 
 
-async def _decode_response(client: httpx.AsyncClient, payload: dict[str, Any]) -> bytes:
-    """从上游响应里拿到图片字节。优先 b64_json，否则下载 url。"""
+async def _decode_response(client: httpx.AsyncClient, payload: dict[str, Any], expected_size: str = "auto") -> bytes:
+    """从上游响应里拿到图片字节。优先 b64_json，否则下载 url。并核对产出尺寸。"""
     if not payload.get("data"):
         raise UpstreamError(f"上游响应无 data 字段: {str(payload)[:200]}")
     item = payload["data"][0]
     b64 = item.get("b64_json")
     if b64:
-        return _normalize_png(base64.b64decode(b64))
+        png = _normalize_png(base64.b64decode(b64))
+        _verify_size(png, expected_size)
+        return png
     url = item.get("url")
     if url:
         r = await client.get(url, timeout=_TIMEOUT)
         r.raise_for_status()
-        return _normalize_png(r.content)
+        png = _normalize_png(r.content)
+        _verify_size(png, expected_size)
+        return png
     raise UpstreamError(f"上游响应缺少图片字段: {str(item)[:200]}")
 
 
@@ -91,8 +111,8 @@ async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes
             resp2 = await client.post(url, json=body2, headers=headers)
             if resp2.status_code >= 400:
                 raise UpstreamError(f"generations {resp.status_code}: {_err_text(resp)}")
-            return await _decode_response(client, resp2.json())
-        return await _decode_response(client, resp.json())
+            return await _decode_response(client, resp2.json(), size)
+        return await _decode_response(client, resp.json(), size)
 
 
 def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes, str]]]:
@@ -125,5 +145,5 @@ async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str
             resp2 = await client.post(url, data=data2, files=_build_edit_files(ref_pngs), headers=headers)
             if resp2.status_code >= 400:
                 raise UpstreamError(f"edits {resp.status_code}: {_err_text(resp)}")
-            return await _decode_response(client, resp2.json())
-        return await _decode_response(client, resp.json())
+            return await _decode_response(client, resp2.json(), size)
+        return await _decode_response(client, resp.json(), size)

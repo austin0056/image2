@@ -144,25 +144,11 @@
             <label>尺寸</label>
             <select id="size">
               <option value="auto">Auto · 让模型自选</option>
-              <optgroup label="1K · 标准">
-                <option value="1024x1024" selected>1024 × 1024 · 1:1</option>
-                <option value="1024x1536">1024 × 1536 · 2:3 竖</option>
-                <option value="1536x1024">1536 × 1024 · 3:2 横</option>
-              </optgroup>
-              <optgroup label="2K · 高清">
-                <option value="2048x2048">2048 × 2048 · 1:1</option>
-                <option value="2048x1152">2048 × 1152 · 16:9 横</option>
-                <option value="1152x2048">1152 × 2048 · 9:16 竖</option>
-                <option value="2560x1440">2560 × 1440 · 16:9</option>
-              </optgroup>
-              <optgroup label="4K · 实验性">
-                <option value="3840x2160">3840 × 2160 · 16:9</option>
-                <option value="2160x3840">2160 × 3840 · 9:16</option>
-                <option value="4096x4096">4096 × 4096 · 1:1</option>
-              </optgroup>
-              <option value="__custom">自定义…</option>
+              <option value="1024x1024" selected>1024 × 1024 · 正方 1:1</option>
+              <option value="1536x1024">1536 × 1024 · 横向 3:2</option>
+              <option value="1024x1536">1024 × 1536 · 竖向 2:3</option>
             </select>
-            <input id="size-custom" class="hidden" type="text" placeholder="例 1920x1088（需 16 倍数）" style="margin-top:6px;" />
+            <div class="hint">仅这几种尺寸受模型支持；提示词里写的比例不影响输出，以此处为准。</div>
           </div>
           <div class="panel-row">
             <label>质量</label>
@@ -1318,11 +1304,7 @@ function updateIconPriceLabel() {
 }
 
 function currentSize() {
-  const v = $("size").value;
-  if (v === "__custom") {
-    return ($("size-custom").value || "").trim().toLowerCase() || "1024x1024";
-  }
-  return v;
+  return $("size").value;
 }
 
 /* ===================== 事件绑定 ===================== */
@@ -1438,11 +1420,6 @@ drop.addEventListener("drop", (e) => {
   e.preventDefault(); drop.classList.remove("drag");
   addRefFiles(e.dataTransfer.files);
 });
-
-// 尺寸
-$("size").onchange = () => {
-  $("size-custom").classList.toggle("hidden", $("size").value !== "__custom");
-};
 
 // 例子提示
 document.querySelectorAll(".empty-state .ex").forEach((b) => {

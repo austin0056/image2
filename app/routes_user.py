@@ -23,30 +23,19 @@ ALLOWED_QUALITY = {"auto", "low", "medium", "high"}
 MAX_REF_BYTES = 10 * 1024 * 1024  # 10MB
 MAX_REFS = 6  # 单次最多参考图张数
 
-# gpt-image-2 尺寸规则：长宽均为 16 的倍数；最短边 ≥ 256；最长边 ≤ 4096。
-SIZE_MIN = 256
-SIZE_MAX = 4096
-SIZE_MULTIPLE = 16
+# gpt-image 系列只支持这几种尺寸（外加 auto）。实际产出尺寸严格等于这里的请求值，
+# 所以服务端只允许白名单内的值；提示词里写的比例不影响输出。
+ALLOWED_SIZES = {"auto", "1024x1024", "1536x1024", "1024x1536"}
 
 
 def _validate_size(size: str) -> str:
     s = size.strip().lower()
-    if s == "auto":
-        return "auto"
-    if "x" not in s:
-        raise HTTPException(400, "size 格式必须为 WIDTHxHEIGHT，比如 1024x1024")
-    try:
-        w_str, h_str = s.split("x", 1)
-        w, h = int(w_str), int(h_str)
-    except ValueError:
-        raise HTTPException(400, "size 解析失败")
-    if w < SIZE_MIN or h < SIZE_MIN:
-        raise HTTPException(400, f"尺寸过小，宽高都需 ≥ {SIZE_MIN}")
-    if w > SIZE_MAX or h > SIZE_MAX:
-        raise HTTPException(400, f"尺寸过大，宽高都需 ≤ {SIZE_MAX}")
-    if w % SIZE_MULTIPLE or h % SIZE_MULTIPLE:
-        raise HTTPException(400, f"尺寸必须是 {SIZE_MULTIPLE} 的倍数")
-    return f"{w}x{h}"
+    if s not in ALLOWED_SIZES:
+        raise HTTPException(
+            400,
+            "尺寸不支持，仅允许 auto / 1024x1024 / 1536x1024 / 1024x1536",
+        )
+    return s
 
 
 class KeyBody(BaseModel):
