@@ -1062,12 +1062,28 @@ function showCadResult(files, meta) {
       if (empty) showFallback("模型为空，无法预览");
       else settled = true;
     }, { once: true });
-    mv.addEventListener("error", () => showFallback("3D 模型加载失败"), { once: true });
+    mv.addEventListener("error", (e) => {
+      const t = (e && e.detail && (e.detail.type || e.detail.sourceError && e.detail.sourceError.message)) || "";
+      console.warn("model-viewer error:", e && e.detail);
+      showFallback("3D 模型加载失败" + (t ? "（" + t + "）" : ""));
+    }, { once: true });
   }
   Promise.resolve(window.__mvReady).then((loaded) => {
     if (loaded === false || !customElements.get("model-viewer")) showFallback("3D 预览组件加载失败（网络/CDN）");
   });
-  setTimeout(() => { if (!settled && !(mv && mv.loaded)) showFallback("3D 预览加载超时"); }, 15000);
+  setTimeout(async () => {
+    if (settled || (mv && mv.loaded)) return;
+    // 诊断：直接看 GLB 端点到底返回了什么，把结论写进兜底，便于一眼定位
+    let diag = "";
+    try {
+      const r = await fetch(files.glb + "?access_key=" + ak, { cache: "no-store" });
+      const buf = await r.arrayBuffer();
+      const magic = String.fromCharCode.apply(null, new Uint8Array(buf.slice(0, 4)));
+      diag = `GLB ${r.status} · ${(r.headers.get("content-type") || "?")} · ${buf.byteLength}B · magic="${magic}"`;
+    } catch (e) { diag = "GLB 拉取失败: " + e.message; }
+    console.warn("CAD 预览诊断:", diag);
+    showFallback("3D 预览加载超时（" + diag + "）");
+  }, 20000);
 }
 function showHtmlResult(url, id) {
   // 公式/图表：结果是自包含 HTML，沙箱 iframe 里由浏览器渲染（MathJax 公式 + Mermaid 流程图）
