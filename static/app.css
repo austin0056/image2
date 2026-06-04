@@ -3,55 +3,58 @@
    ============================================================ */
 
 :root {
-  /* ---------- Color · 中性灰阶 ---------- */
-  --c-bg: #F6F7F9;            /* 主工作区背景 */
+  /* ---------- Color · 暖中性灰阶（设计稿 v3：克制 / 工具感） ---------- */
+  --c-bg: #F4F4F1;             /* 主工作区背景 */
   --c-surface: #FFFFFF;        /* 面板/卡片底色 */
-  --c-surface-2: #FAFBFC;      /* 次级面板（hover/嵌套） */
-  --c-surface-sunken: #F1F2F5; /* 凹陷区（输入框 idle） */
-  --c-canvas: #FAFAFB;         /* 中央画布底（淡棋盘也用） */
+  --c-surface-2: #FAFAF8;      /* 次级面板（hover/嵌套） */
+  --c-surface-sunken: #EFEFEB; /* 凹陷区（输入框 idle） */
+  --c-canvas: #F7F7F4;         /* 中央画布底 */
 
-  --c-line: #E6E8EC;           /* 主分割线 */
-  --c-line-soft: #EFF1F4;      /* 浅分割线 */
-  --c-line-strong: #D8DCE3;    /* 强分割线（focus 边框） */
-  --c-border-strong: #D0D5DD;  /* 兼容旧变量：强边框 */
+  --c-line: #E7E6E0;           /* 主分割线 */
+  --c-line-soft: #EEEDE8;      /* 浅分割线 */
+  --c-line-strong: #D8D7D0;    /* 强分割线（focus 边框） */
+  --c-border-strong: #D8D7D0;  /* 兼容旧变量：强边框 */
 
-  --c-text: #0E1116;           /* 主文字 */
-  --c-text-2: #4B5563;         /* 次要文字 */
-  --c-text-mute: #8A93A6;      /* 提示/弱文字 */
-  --c-text-on-dark: #F5F6F8;   /* 顶栏白色文字 */
+  --c-text: #1A1A17;           /* 主文字 */
+  --c-text-2: #57564E;         /* 次要文字 */
+  --c-text-mute: #8C8B81;      /* 提示/弱文字 */
+  --c-text-faint: #ADACA2;     /* 极弱文字/占位 */
+  --c-text-on-dark: #ECEBE6;   /* 顶栏白色文字 */
   --c-text-on-accent: #FFFFFF;
 
-  /* ---------- Color · 品牌 / 强调 ---------- */
-  --c-accent: #FF5C2C;         /* CTA 主色（暖橙） */
-  --c-accent-hover: #FF6F44;
-  --c-accent-press: #E84A1B;
-  --c-accent-soft: rgba(255,92,44,.10);
+  /* ---------- Color · 品牌 / 强调（克制焦橙，无渐变） ---------- */
+  --c-accent: #D9531E;         /* CTA 主色 */
+  --c-accent-hover: #C5491A;
+  --c-accent-press: #AE3F15;
+  --c-accent-soft: #FBEDE6;    /* 弱底（实色，非透明） */
+  --c-accent-line: #F0CDBC;    /* 弱描边 */
 
-  --c-brand-grad: linear-gradient(135deg, #FF5C2C 0%, #FF3B7C 50%, #8C3BFF 100%);
-  --c-brand-2: #FF5C2C;        /* 兼容旧变量：品牌橙 */
+  /* 去掉品牌渐变：所有原来用渐变的地方统一退化为纯强调色 */
+  --c-brand-grad: var(--c-accent);
+  --c-brand-2: #D9531E;        /* 兼容旧变量 */
 
-  --c-success: #16A34A;
-  --c-success-soft: rgba(22,163,74,.10);
-  --c-danger: #E11D48;
-  --c-danger-soft: rgba(225,29,72,.10);
-  --c-warning: #D97706;
-  --c-warning-soft: rgba(217,119,6,.10);
-  --c-info: #2563EB;
+  --c-success: #2E7D46;
+  --c-success-soft: rgba(46,125,70,.10);
+  --c-danger: #C5403E;
+  --c-danger-soft: rgba(197,64,62,.10);
+  --c-warning: #B7791F;
+  --c-warning-soft: rgba(183,121,31,.12);
+  --c-info: #2F6BD6;
 
-  /* ---------- 顶栏（深色） ---------- */
-  --c-topbar: #15181D;
-  --c-topbar-elev: #1C2027;
-  --c-topbar-line: #262A33;
-  --c-topbar-text: #E6E8EC;
-  --c-topbar-text-mute: #9097A4;
+  /* ---------- 顶栏（暖近黑） ---------- */
+  --c-topbar: #1A1A18;
+  --c-topbar-elev: #232320;
+  --c-topbar-line: #2E2E2A;
+  --c-topbar-text: #ECEBE6;
+  --c-topbar-text-mute: #97968D;
 
   /* ---------- 节奏 ---------- */
   --r-xs: 4px;
   --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-xl: 18px;
-  --r-2xl: 24px;
+  --r-md: 8px;
+  --r-lg: 11px;
+  --r-xl: 14px;
+  --r-2xl: 20px;
   --r-pill: 999px;
 
   --s-1: 4px;
@@ -69,7 +72,7 @@
   --shadow-md: 0 4px 12px rgba(15,23,42,.08), 0 2px 4px rgba(15,23,42,.04);
   --shadow-lg: 0 12px 32px rgba(15,23,42,.10), 0 4px 12px rgba(15,23,42,.06);
   --shadow-xl: 0 24px 48px rgba(15,23,42,.14), 0 8px 16px rgba(15,23,42,.08);
-  --shadow-focus: 0 0 0 3px rgba(255,92,44,.18);
+  --shadow-focus: 0 0 0 3px rgba(217,83,30,.16);
   /* 兼容旧变量命名，避免局部阴影丢失 */
   --shadow-1: var(--shadow-sm);
   --shadow-3: var(--shadow-md);
@@ -83,8 +86,8 @@
   --font-display: "Inter", var(--font-sans);
 
   /* ---------- 尺寸 ---------- */
-  --topbar-h: 56px;
-  --sidebar-w: 360px;
+  --topbar-h: 54px;
+  --sidebar-w: 384px;       /* 含 64px 工具栏 rail + 320px 控制面板 */
   --bottom-bar-h: 64px;
 
   /* ---------- 过渡 ---------- */
@@ -93,14 +96,7 @@
   --t-slow: .28s cubic-bezier(.4,0,.2,1);
 }
 
-/* 暂保留管理面板可以单独覆盖品牌色 */
-body.theme-admin {
-  --c-accent: #8C3BFF;
-  --c-accent-hover: #9D52FF;
-  --c-accent-press: #7728E5;
-  --c-accent-soft: rgba(140,59,255,.10);
-  --shadow-focus: 0 0 0 3px rgba(140,59,255,.18);
-}
+/* 设计稿统一为克制焦橙，管理面板不再用紫色（保留选择器以便将来覆盖） */
 
 /* ---------- Reset ---------- */
 *, *::before, *::after { box-sizing: border-box; }
@@ -155,6 +151,39 @@ a:hover { color: var(--c-accent-hover); }
   overflow-y: auto;
   display: flex; flex-direction: column;
 }
+/* 工具 rail 布局（VS Code / Figma 风格） */
+.sidebar.with-rail { flex-direction: row; overflow: hidden; }
+.tool-rail {
+  width: 64px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 8px;
+  background: var(--c-surface-2);
+  border-right: 1px solid var(--c-line);
+}
+.rail-btn {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 11px 4px 9px; border-radius: var(--r-md);
+  font-size: 11px; font-weight: 550; color: var(--c-text-mute);
+  transition: all var(--t-fast);
+}
+.rail-btn svg { width: 19px; height: 19px; }
+.rail-btn:hover { background: var(--c-surface-sunken); color: var(--c-text-2); }
+.rail-btn.active { background: var(--c-accent-soft); color: var(--c-accent); }
+.rail-btn.active::before {
+  content: ""; position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 22px; border-radius: 0 3px 3px 0; background: var(--c-accent);
+}
+.sidebar-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.panel-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 16px; height: 46px; flex-shrink: 0;
+  border-bottom: 1px solid var(--c-line); color: var(--c-text);
+}
+.panel-head svg { color: var(--c-accent); }
+.panel-head .ph-title { font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; }
+.panel-head .ph-desc { font-size: 11.5px; color: var(--c-text-mute); margin-left: auto; }
+.sidebar-scroll { flex: 1; overflow-y: auto; min-height: 0; min-width: 0; }
 .canvas {
   background: var(--c-canvas);
   display: flex; flex-direction: column;
@@ -969,8 +998,7 @@ input[type="range"] {
 .login-shell {
   min-height: 100vh; display: grid; place-items: center;
   background:
-    radial-gradient(800px 400px at 20% 30%, rgba(255,92,44,.10) 0%, transparent 60%),
-    radial-gradient(700px 350px at 80% 70%, rgba(140,59,255,.10) 0%, transparent 60%),
+    radial-gradient(700px 380px at 22% 26%, var(--c-accent-soft) 0%, transparent 62%),
     var(--c-bg);
   padding: var(--s-6);
 }
@@ -1143,7 +1171,7 @@ input[type="range"] {
 }
 .admin-card h3::before {
   content: ""; flex-shrink: 0; width: 4px; height: 16px; border-radius: 3px;
-  background: linear-gradient(180deg, #8C3BFF, #FF3B7C);
+  background: var(--c-accent);
 }
 
 table.data {
@@ -1225,11 +1253,11 @@ table.data .mono { font-family: var(--font-mono); font-size: 12px; color: var(--
   cursor: pointer; transition: all .15s ease;
   text-align: center;
 }
-.amount-card:hover { border-color: var(--c-accent-soft); background: var(--c-surface); }
+.amount-card:hover { border-color: var(--c-text-faint); background: var(--c-surface); }
 .amount-card.active {
   border-color: var(--c-accent);
-  background: linear-gradient(135deg, rgba(255,92,44,.08) 0%, rgba(140,59,255,.08) 100%);
-  box-shadow: 0 4px 12px rgba(255,92,44,.12);
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
 }
 .amount-card .y {
   font-size: 18px; font-weight: 600;
