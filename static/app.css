@@ -212,15 +212,11 @@ a:hover { color: var(--c-accent-hover); }
 }
 .brand-mark {
   width: 26px; height: 26px; border-radius: 7px;
-  background: var(--c-brand-grad);
-  box-shadow: 0 4px 14px rgba(255,92,44,.30);
-  position: relative;
+  background: var(--c-accent);
+  display: grid; place-items: center;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 1px 2px rgba(0,0,0,.3);
 }
-.brand-mark::after {
-  content: ""; position: absolute; inset: 1px;
-  border-radius: 6px;
-  background: linear-gradient(180deg, rgba(255,255,255,.14), transparent 45%);
-}
+.brand-mark svg { width: 15px; height: 15px; color: #fff; }
 .brand-name { font-weight: 700; }
 .brand-tag {
   font-size: 11px; padding: 2px 8px;
@@ -566,18 +562,13 @@ input[type="range"] {
   text-align: center; max-width: 460px;
 }
 .empty-state .em-icon {
-  width: 72px; height: 72px; margin: 0 auto var(--s-5);
-  border-radius: 20px;
-  background: var(--c-brand-grad);
+  width: 60px; height: 60px; margin: 0 auto var(--s-5);
+  border-radius: 16px;
+  background: var(--c-accent-soft); color: var(--c-accent);
+  border: 1px solid var(--c-accent-line);
   display: grid; place-items: center;
-  box-shadow: 0 12px 32px rgba(255,92,44,.25);
-  position: relative;
 }
-.empty-state .em-icon::after {
-  content: ""; position: absolute; inset: 2px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255,255,255,.18), transparent 50%);
-}
+.empty-state .em-icon svg { width: 28px; height: 28px; }
 .empty-state h3 {
   font-size: 22px; font-weight: 700; margin: 0 0 var(--s-2);
   letter-spacing: -.01em;
@@ -1002,40 +993,45 @@ input[type="range"] {
     var(--c-bg);
   padding: var(--s-6);
 }
-.login-card {
-  width: 100%; max-width: 400px;
+/* 左右分栏登录 */
+.login-split {
+  display: grid; grid-template-columns: 1fr 1fr;
+  width: min(940px, 100%); height: min(580px, 90vh);
+  border-radius: var(--r-2xl); overflow: hidden;
+  box-shadow: var(--shadow-xl); border: 1px solid var(--c-line);
   background: var(--c-surface);
-  border-radius: var(--r-2xl);
-  padding: 36px 32px 28px;
-  box-shadow: var(--shadow-xl);
-  border: 1px solid var(--c-line-soft);
 }
-.login-brand {
-  display: flex; align-items: center; gap: 14px;
-  margin-bottom: var(--s-6);
+.login-aside {
+  background: var(--c-topbar); color: var(--c-topbar-text);
+  padding: 40px; display: flex; flex-direction: column; justify-content: space-between;
+  position: relative; overflow: hidden;
 }
-.login-brand .mark {
-  width: 48px; height: 48px; border-radius: 14px;
-  background: var(--c-brand-grad);
-  box-shadow: 0 8px 24px rgba(255,92,44,.30);
-  position: relative;
+.login-aside .la-glow {
+  position: absolute; width: 360px; height: 360px; border-radius: 50%;
+  background: var(--c-accent); opacity: .22; filter: blur(80px); bottom: -120px; right: -80px;
 }
-.login-brand .mark::after {
-  content: ""; position: absolute; inset: 2px; border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255,255,255,.20), transparent 45%);
+.login-aside .brand-name { color: #fff; }
+.la-tagline { font-size: 25px; font-weight: 700; line-height: 1.25; letter-spacing: -.02em; max-width: 320px; }
+.la-tagline span { color: var(--c-accent); }
+.la-feats { display: grid; gap: 12px; position: relative; }
+.la-feat { display: flex; align-items: center; gap: 11px; font-size: 13px; color: var(--c-topbar-text); }
+.la-feat .fi {
+  width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,.07);
+  display: grid; place-items: center; color: var(--c-accent); flex-shrink: 0;
 }
-.login-brand .name {
-  font-size: 22px; font-weight: 700; letter-spacing: -.02em;
-}
-.login-brand .tag { font-size: 12px; color: var(--c-text-mute); }
-.login-card h2 { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
-.login-card p.lead {
-  color: var(--c-text-2); font-size: 13px; margin: 0 0 var(--s-5);
-}
-.login-card .field { margin-bottom: var(--s-3); }
-.login-card .field label {
-  display: block; font-size: 12px; font-weight: 500;
-  color: var(--c-text-2); margin-bottom: 6px;
+.la-feat .fi svg { width: 16px; height: 16px; }
+.la-feat .fd { font-size: 11px; color: var(--c-topbar-text-mute); }
+
+.login-main { padding: 44px 40px; display: flex; flex-direction: column; justify-content: center; }
+.login-main h2 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 6px; }
+.login-main .lead { color: var(--c-text-2); font-size: 13px; margin: 0 0 24px; }
+.login-field { margin-bottom: 14px; }
+.login-field label { display: block; font-size: 12px; font-weight: 600; color: var(--c-text-2); margin-bottom: 7px; }
+
+/* 窄屏：隐藏深色能力侧栏，仅留表单 */
+@media (max-width: 720px) {
+  .login-split { grid-template-columns: 1fr; height: auto; max-width: 420px; }
+  .login-aside { display: none; }
 }
 
 /* ============================================================

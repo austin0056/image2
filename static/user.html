@@ -46,26 +46,35 @@
   </defs>
 </svg>
 
-<!-- =============== Login =============== -->
+<!-- =============== Login（左右分栏：深色能力侧栏 + 登录表单） =============== -->
 <div id="login" class="login-shell">
-  <div class="login-card">
-    <div class="login-brand">
-      <div class="mark"></div>
-      <div>
-        <div class="name">image2</div>
-        <div class="tag">AI 生图 · 矢量图标</div>
+  <div class="login-split">
+    <div class="login-aside">
+      <div class="la-glow"></div>
+      <div class="brand" style="position:relative;">
+        <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2 7h7l-5.5 4 2 7L12 16l-5.5 5 2-7L3 10h7z"/></svg></div>
+        <span class="brand-name" style="font-size:16px;">image2</span>
+      </div>
+      <div class="la-tagline" style="position:relative;">一个工作台，<br/><span>生图、矢量图标、CAD、图表</span> 一站搞定。</div>
+      <div class="la-feats">
+        <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><div><div>AI 生图</div><div class="fd">gpt-image · 参考图编辑</div></div></div>
+        <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></span><div><div>矢量图标</div><div class="fd">Claude few-shot / Recraft v4.1</div></div></div>
+        <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg></span><div><div>文字转 CAD</div><div class="fd">build123d · STEP / STL / GLB</div></div></div>
+        <div class="la-feat"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg></span><div><div>公式图表</div><div class="fd">matplotlib · 科学绘图</div></div></div>
       </div>
     </div>
-    <h2>欢迎回来</h2>
-    <p class="lead">输入你的 Access Key 进入工作台</p>
-    <div class="field">
-      <label>Access Key</label>
-      <input id="key-input" type="password" placeholder="ak_..." autocomplete="off" />
+    <div class="login-main">
+      <h2>欢迎回来</h2>
+      <p class="lead">输入你的 Access Key 进入工作台</p>
+      <div class="login-field">
+        <label>Access Key</label>
+        <input id="key-input" type="password" placeholder="ak_…" autocomplete="off" />
+      </div>
+      <button class="btn primary full lg" id="login-btn" style="margin-top:4px;">进入工作台</button>
+      <p class="dim" style="font-size:11.5px;text-align:center;margin:16px 0 0;">
+        联系管理员获取 access key · 按 <span class="kbd">Enter</span> 登录
+      </p>
     </div>
-    <button class="btn primary full lg" id="login-btn" style="margin-top:8px;">进入工作台</button>
-    <p class="dim" style="font-size:11.5px;text-align:center;margin:14px 0 0;">
-      联系管理员获取 access key · 按 <span class="kbd">Enter</span> 登录
-    </p>
   </div>
 </div>
 
@@ -382,7 +391,7 @@
         <!-- 空状态 -->
         <div class="empty-state" id="empty-state">
           <div class="em-icon">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2 7h7l-5.5 4 2 7L12 16l-5.5 5 2-7L3 10h7z"/></svg>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2 7h7l-5.5 4 2 7L12 16l-5.5 5 2-7L3 10h7z"/></svg>
           </div>
           <h3>开始你的创作</h3>
           <p>输入提示词，选择参数，点击生成。结果会显示在这里，可以下载、复用、调整。</p>
