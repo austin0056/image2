@@ -83,6 +83,10 @@ async def _init_schema() -> None:
         await con.execute(
             "ALTER TABLE generations ADD COLUMN IF NOT EXISTS result_files JSONB"
         )
+        # 多张参考图的对象 key 列表（生图）。ref_key 仍保留为第一张，兼容旧缩略图逻辑。
+        await con.execute(
+            "ALTER TABLE generations ADD COLUMN IF NOT EXISTS ref_keys JSONB"
+        )
         # payments 表
         await con.execute(
             """
@@ -275,9 +279,11 @@ async def try_charge_and_create(
     ref_key: str | None,
     cost_cents: int,
     kind: str = "image",
+    ref_keys: list[str] | None = None,
 ) -> tuple[int | None, int | None]:
     """原子扣费 + 插入 pending 记录。返回 (generation_id, balance_after)。
     余额不足返回 (None, None)。"""
+    ref_keys_json = json.dumps(ref_keys) if ref_keys else None
     async with pool().acquire() as con:
         async with con.transaction():
             row = await con.fetchrow(
@@ -294,11 +300,11 @@ async def try_charge_and_create(
             balance = int(row["balance_cents"])
             gen = await con.fetchrow(
                 """
-                INSERT INTO generations(user_id, prompt, size, has_ref, ref_key, cost_cents, status, kind)
-                VALUES($1, $2, $3, $4, $5, $6, 'pending', $7)
+                INSERT INTO generations(user_id, prompt, size, has_ref, ref_key, cost_cents, status, kind, ref_keys)
+                VALUES($1, $2, $3, $4, $5, $6, 'pending', $7, $8::jsonb)
                 RETURNING id
                 """,
-                user_id, prompt, size, has_ref, ref_key, cost_cents, kind,
+                user_id, prompt, size, has_ref, ref_key, cost_cents, kind, ref_keys_json,
             )
             return int(gen["id"]), balance
 
@@ -350,7 +356,7 @@ async def list_history(user_id: int, limit: int = 30) -> list[dict[str, Any]]:
     async with pool().acquire() as con:
         rows = await con.fetch(
             """
-            SELECT id, prompt, size, has_ref, ref_key, result_key, result_svg,
+            SELECT id, prompt, size, has_ref, ref_key, ref_keys, result_key, result_svg,
                    result_files, kind, cost_cents, status, error, created_at
             FROM generations
             WHERE user_id=$1
@@ -372,10 +378,10 @@ async def delete_generation(generation_id: int, user_id: int | None = None) -> d
     """删除一条记录。user_id 不为 None 时必须属于该用户。返回被删记录。"""
     async with pool().acquire() as con:
         if user_id is None:
-            row = await con.fetchrow("DELETE FROM generations WHERE id=$1 RETURNING ref_key, result_key, result_files", generation_id)
+            row = await con.fetchrow("DELETE FROM generations WHERE id=$1 RETURNING ref_key, ref_keys, result_key, result_files", generation_id)
         else:
             row = await con.fetchrow(
-                "DELETE FROM generations WHERE id=$1 AND user_id=$2 RETURNING ref_key, result_key, result_files",
+                "DELETE FROM generations WHERE id=$1 AND user_id=$2 RETURNING ref_key, ref_keys, result_key, result_files",
                 generation_id, user_id,
             )
     return _row_to_dict(row)
@@ -618,7 +624,7 @@ async def admin_list_generations(
 ) -> list[dict[str, Any]]:
     sql = (
         "SELECT g.id, g.user_id, u.name AS user_name, g.prompt, g.size, g.has_ref, "
-        "g.ref_key, g.result_key, g.result_svg, g.result_files, g.kind, g.cost_cents, g.status, g.error, g.created_at "
+        "g.ref_key, g.ref_keys, g.result_key, g.result_svg, g.result_files, g.kind, g.cost_cents, g.status, g.error, g.created_at "
         "FROM generations g LEFT JOIN users u ON u.id = g.user_id WHERE 1=1"
     )
     args: list[Any] = []

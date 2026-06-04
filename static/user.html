@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260531b" />
+<link rel="stylesheet" href="/static/app.css?v=20260531c" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -126,16 +126,15 @@
         </div>
 
         <div class="panel-section">
-          <div class="panel-title">参考图（可选）</div>
-          <div class="dropzone" id="drop">
-            <input type="file" id="file" accept="image/*" hidden />
+          <div class="panel-title">参考图（可选 · 最多 6 张）</div>
+          <input type="file" id="file" accept="image/*" multiple hidden />
+          <div class="dropzone ref-dropzone" id="drop">
             <div id="drop-hint">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:.7;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <div>点击或拖拽上传 · 最大 10MB</div>
+              <div>点击或拖拽上传 · 多张 · 单张 ≤10MB</div>
             </div>
-            <img id="ref-preview" class="hidden" />
+            <div class="ref-grid hidden" id="ref-grid"></div>
           </div>
-          <button class="btn ghost small hidden" id="clear-ref" type="button" style="margin-top:6px;">清除参考图</button>
         </div>
 
         <div class="panel-section">
@@ -467,7 +466,8 @@
 /* ===================== 基础工具 ===================== */
 const KEY_STORE = "image2_access_key";
 let accessKey = localStorage.getItem(KEY_STORE) || "";
-let refFile = null;
+let refFiles = [];        // 多张参考图
+const MAX_REFS = 6;
 let lastSvgText = "";
 let currentEngine = "claude";
 let priceClaudeCents = 5;
@@ -621,7 +621,9 @@ async function refreshHistory() {
       const meta = document.createElement("div");
       meta.className = "meta";
       const kindLabel = it.kind === "icon" ? "SVG" : (it.kind === "cad" ? "CAD" : "IMG");
-      meta.textContent = kindLabel + " · " + (it.status === "failed" ? "失败" : "完成");
+      let metaText = kindLabel + " · " + (it.status === "failed" ? "失败" : "完成");
+      if (it.kind !== "icon" && it.kind !== "cad" && it.ref_count > 0) metaText += ` · ${it.ref_count}图参考`;
+      meta.textContent = metaText;
       info.appendChild(p); info.appendChild(meta);
 
       const del = document.createElement("button");
@@ -820,20 +822,45 @@ function formatPayTime(iso) {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}`;
 }
 
-/* ===================== Dropzone ===================== */
-function setRefFile(f) {
-  refFile = f;
-  const prev = $("ref-preview"), hint = $("drop-hint"), clear = $("clear-ref");
-  if (f) {
-    prev.src = URL.createObjectURL(f);
-    prev.classList.remove("hidden");
-    hint.classList.add("hidden");
-    clear.classList.remove("hidden");
-  } else {
-    prev.classList.add("hidden"); prev.removeAttribute("src");
+/* ===================== Dropzone（多张参考图） ===================== */
+function renderRefThumbs() {
+  const grid = $("ref-grid"), hint = $("drop-hint");
+  grid.innerHTML = "";
+  if (!refFiles.length) {
     hint.classList.remove("hidden");
-    clear.classList.add("hidden");
+    grid.classList.add("hidden");
+    return;
   }
+  hint.classList.add("hidden");
+  grid.classList.remove("hidden");
+  refFiles.forEach((f, i) => {
+    const cell = document.createElement("div");
+    cell.className = "ref-thumb";
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(f);
+    cell.appendChild(img);
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "ref-del"; del.textContent = "×"; del.title = "移除";
+    del.onclick = (e) => { e.stopPropagation(); refFiles.splice(i, 1); renderRefThumbs(); };
+    cell.appendChild(del);
+    grid.appendChild(cell);
+  });
+  if (refFiles.length < MAX_REFS) {
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "ref-add"; add.textContent = "＋"; add.title = "继续添加";
+    add.onclick = (e) => { e.stopPropagation(); $("file").click(); };
+    grid.appendChild(add);
+  }
+}
+
+function addRefFiles(fileList) {
+  const incoming = Array.from(fileList || []).filter((f) => f.type && f.type.startsWith("image/"));
+  for (const f of incoming) {
+    if (refFiles.length >= MAX_REFS) { toast(`最多 ${MAX_REFS} 张参考图`, "error"); break; }
+    if (f.size > 10 * 1024 * 1024) { toast(`「${f.name}」超过 10MB`, "error"); continue; }
+    refFiles.push(f);
+  }
+  renderRefThumbs();
 }
 
 /* ===================== 画布状态 ===================== */
@@ -1006,7 +1033,7 @@ async function generate() {
   fd.append("prompt", prompt);
   fd.append("size", currentSize());
   fd.append("quality", $("quality").value);
-  if (refFile) fd.append("ref", refFile);
+  refFiles.forEach((f) => fd.append("refs", f));
 
   const btn = $("generate-btn");
   btn.disabled = true;
@@ -1378,17 +1405,16 @@ document.querySelectorAll(".tab-btn").forEach((b) => {
   };
 });
 
-// Dropzone
+// Dropzone（多张）
 const drop = $("drop");
-drop.onclick = () => $("file").click();
-$("file").onchange = (e) => { if (e.target.files[0]) setRefFile(e.target.files[0]); };
+drop.onclick = (e) => { if (e.target.closest(".ref-del, .ref-add")) return; $("file").click(); };
+$("file").onchange = (e) => { addRefFiles(e.target.files); $("file").value = ""; };
 drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
 drop.addEventListener("drop", (e) => {
   e.preventDefault(); drop.classList.remove("drag");
-  if (e.dataTransfer.files[0]) setRefFile(e.dataTransfer.files[0]);
+  addRefFiles(e.dataTransfer.files);
 });
-$("clear-ref").onclick = () => { setRefFile(null); $("file").value = ""; };
 
 // 尺寸
 $("size").onchange = () => {

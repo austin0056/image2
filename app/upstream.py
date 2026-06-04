@@ -93,11 +93,21 @@ async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes
         return await _decode_response(client, resp.json())
 
 
-async def edit_image(prompt: str, size: str, ref_png: bytes, quality: str = "auto") -> bytes:
+def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes, str]]]:
+    """构造 multipart 文件列表。单图用字段名 image，多图用 image[]（OpenAI 约定）。"""
+    field = "image" if len(ref_pngs) == 1 else "image[]"
+    return [
+        (field, (f"ref{i}.png", png, "image/png"))
+        for i, png in enumerate(ref_pngs)
+    ]
+
+
+async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str = "auto") -> bytes:
+    if not ref_pngs:
+        raise UpstreamError("缺少参考图")
     cfg = await _provider_settings()
     url = f"{cfg['upstream_base']}/images/edits"
     headers = _auth_headers(cfg["upstream_key"])
-    files = {"image": ("ref.png", ref_png, "image/png")}
     data = {
         "model": cfg["upstream_model"],
         "prompt": prompt,
@@ -107,11 +117,10 @@ async def edit_image(prompt: str, size: str, ref_png: bytes, quality: str = "aut
         "response_format": "b64_json",
     }
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(url, data=data, files=files, headers=headers)
+        resp = await client.post(url, data=data, files=_build_edit_files(ref_pngs), headers=headers)
         if resp.status_code >= 400:
             data2 = {k: v for k, v in data.items() if k != "response_format"}
-            files2 = {"image": ("ref.png", ref_png, "image/png")}
-            resp2 = await client.post(url, data=data2, files=files2, headers=headers)
+            resp2 = await client.post(url, data=data2, files=_build_edit_files(ref_pngs), headers=headers)
             if resp2.status_code >= 400:
                 raise UpstreamError(f"edits {resp.status_code}: {_err_text(resp)}")
             return await _decode_response(client, resp2.json())

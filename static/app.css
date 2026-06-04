@@ -1021,6 +1021,35 @@ input[type="range"] {
 }
 .dropzone img { max-width: 100%; max-height: 120px; border-radius: var(--r-sm); }
 
+/* 多张参考图 */
+.ref-dropzone { padding: var(--s-3); }
+.ref-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 6px; width: 100%;
+}
+.ref-grid.hidden { display: none; }
+.ref-thumb {
+  position: relative; aspect-ratio: 1; border-radius: var(--r-sm);
+  overflow: hidden; border: 1px solid var(--c-line); background: var(--c-surface);
+}
+.ref-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ref-del {
+  position: absolute; top: 3px; right: 3px;
+  width: 18px; height: 18px; border: 0; border-radius: 50%;
+  background: rgba(15,18,24,.62); color: #fff; font-size: 13px; line-height: 1;
+  display: grid; place-items: center; cursor: pointer; padding: 0;
+  transition: background var(--t-fast);
+}
+.ref-del:hover { background: var(--c-danger); }
+.ref-add {
+  aspect-ratio: 1; border: 1.5px dashed var(--c-line-strong);
+  border-radius: var(--r-sm); background: var(--c-surface);
+  color: var(--c-text-mute); font-size: 22px; line-height: 1;
+  display: grid; place-items: center; cursor: pointer;
+  transition: all var(--t-fast);
+}
+.ref-add:hover { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-soft); }
+
 /* ============================================================
    Admin
    ============================================================ */

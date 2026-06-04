@@ -21,6 +21,7 @@ router = APIRouter()
 
 ALLOWED_QUALITY = {"auto", "low", "medium", "high"}
 MAX_REF_BYTES = 10 * 1024 * 1024  # 10MB
+MAX_REFS = 6  # 单次最多参考图张数
 
 # gpt-image-2 尺寸规则：长宽均为 16 的倍数；最短边 ≥ 256；最长边 ≤ 4096。
 SIZE_MIN = 256
@@ -80,13 +81,28 @@ def _normalize_ref(data: bytes) -> bytes:
     return out.getvalue()
 
 
+def _ref_keys_list(ref_keys: Any) -> list[str]:
+    """把 generations.ref_keys(JSONB，asyncpg 返回 str)解析为 key 列表。"""
+    if not ref_keys:
+        return []
+    if isinstance(ref_keys, str):
+        try:
+            ref_keys = json.loads(ref_keys)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(ref_keys, list):
+        return []
+    return [k for k in ref_keys if isinstance(k, str) and k]
+
+
 @router.post("/api/generate")
 async def api_generate(
     access_key: str = Form(...),
     prompt: str = Form(...),
     size: str = Form("1024x1024"),
     quality: str = Form("high"),
-    ref: UploadFile | None = File(default=None),
+    refs: list[UploadFile] = File(default=[]),
+    ref: UploadFile | None = File(default=None),  # 兼容旧单图字段
 ) -> dict[str, Any]:
     user = await require_user(access_key)
     prompt = prompt.strip()
@@ -100,38 +116,48 @@ async def api_generate(
         raise HTTPException(503, "图片生成 AI 提供商未配置完整，请联系管理员")
     cost_cents = image_provider["price_cents"]
 
-    ref_bytes: bytes | None = None
-    ref_key: str | None = None
+    # 收集参考图：新字段 refs(多图) + 兼容旧字段 ref(单图)
+    incoming = [f for f in (refs or []) if f is not None and f.filename]
     if ref is not None and ref.filename:
-        raw = await ref.read()
-        if not raw:
-            ref = None
-        elif len(raw) > MAX_REF_BYTES:
-            raise HTTPException(400, "参考图超过 10MB")
-        else:
-            try:
-                ref_bytes = await asyncio.to_thread(_normalize_ref, raw)
-            except Exception as e:
-                raise HTTPException(400, f"参考图解析失败: {e}")
-            ref_key = storage.make_key("refs")
-            await storage.upload_bytes(ref_key, ref_bytes)
+        incoming.append(ref)
+    if len(incoming) > MAX_REFS:
+        raise HTTPException(400, f"参考图最多 {MAX_REFS} 张")
 
-    has_ref = ref_bytes is not None
+    ref_pngs: list[bytes] = []
+    ref_keys: list[str] = []
+    for f in incoming:
+        raw = await f.read()
+        if not raw:
+            continue
+        if len(raw) > MAX_REF_BYTES:
+            raise HTTPException(400, "单张参考图不能超过 10MB")
+        try:
+            png = await asyncio.to_thread(_normalize_ref, raw)
+        except Exception as e:
+            raise HTTPException(400, f"参考图解析失败: {e}")
+        key = storage.make_key("refs")
+        await storage.upload_bytes(key, png)
+        ref_pngs.append(png)
+        ref_keys.append(key)
+
+    has_ref = bool(ref_pngs)
+    first_ref_key = ref_keys[0] if ref_keys else None
 
     gen_id, balance_after = await db.try_charge_and_create(
         user_id=user["id"],
         prompt=prompt,
         size=size,
         has_ref=has_ref,
-        ref_key=ref_key,
+        ref_key=first_ref_key,
         cost_cents=cost_cents,
+        ref_keys=ref_keys or None,
     )
     if gen_id is None:
         raise HTTPException(402, "余额不足")
 
     try:
-        if has_ref and ref_bytes is not None:
-            png = await upstream.edit_image(prompt, size, ref_bytes, quality=quality)
+        if has_ref:
+            png = await upstream.edit_image(prompt, size, ref_pngs, quality=quality)
         else:
             png = await upstream.generate_image(prompt, size, quality=quality)
         result_key = storage.make_key("results")
@@ -182,6 +208,8 @@ async def api_history(user: dict[str, Any] = Depends(current_user)) -> dict[str,
         else:
             item["result_url"] = f"/files/result/{r['id']}" if r["result_key"] else None
             item["ref_url"] = f"/files/ref/{r['id']}" if r["ref_key"] else None
+            n_ref = len(_ref_keys_list(r.get("ref_keys")))
+            item["ref_count"] = n_ref or (1 if r["ref_key"] else 0)
         out.append(item)
     return {"items": out}
 
@@ -213,10 +241,11 @@ async def api_delete_generation(
     deleted = await db.delete_generation(generation_id, user_id=user["id"])
     if not deleted:
         raise HTTPException(404, "记录不存在或不属于你")
-    keys = [k for k in (deleted.get("ref_key"), deleted.get("result_key")) if k]
-    keys.extend(_cad_keys(deleted.get("result_files")).values())
+    keys = set(k for k in (deleted.get("ref_key"), deleted.get("result_key")) if k)
+    keys.update(_cad_keys(deleted.get("result_files")).values())
+    keys.update(_ref_keys_list(deleted.get("ref_keys")))
     if keys:
-        await storage.delete_keys(keys)
+        await storage.delete_keys(list(keys))
     return {"ok": True}
 
 
