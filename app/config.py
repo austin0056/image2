@@ -68,6 +68,18 @@ class Settings:
     price_recraft_cents: int
     price_cad_cents: int
     cad_exec_timeout: int
+    # 以下上游均仅作首次初始化默认值，运行时以管理面板(DB)为准
+    claude_base: str
+    claude_key: str
+    claude_model: str
+    recraft_base: str
+    recraft_key: str
+    recraft_model: str
+    chart_base: str
+    chart_key: str
+    chart_model: str
+    price_chart_cents: int
+    chart_exec_timeout: int
 
     # 鉴权
     admin_password: str
@@ -123,6 +135,20 @@ def load_settings() -> Settings:
         # 文字转 CAD：默认 ¥10，因生成慢、算力重。CAD_EXEC_TIMEOUT 为子进程执行上限（秒）。
         price_cad_cents=int(_env("PRICE_CAD_CENTS", "1000")),
         cad_exec_timeout=int(_env("CAD_EXEC_TIMEOUT", "60")),
+        # Claude 中转（CAD + 矢量快速共用）
+        claude_base=_env("CLAUDE_BASE", "https://claude.moon9.cloud"),
+        claude_key=_env("CLAUDE_KEY", ""),
+        claude_model=_env("CLAUDE_MODEL", "kiro-opus-4.7"),
+        # Recraft / OpenRouter（矢量高级）
+        recraft_base=_env("OPENROUTER_BASE", "https://openrouter.ai/api/v1"),
+        recraft_key=_env("OPENROUTER_KEY", ""),
+        recraft_model=_env("RECRAFT_MODEL", "recraft/recraft-v4.1-pro-vector"),
+        # 公式/图表（gpt-5.5，OpenAI 兼容 chat 接口）
+        chart_base=_env("CHART_BASE", ""),
+        chart_key=_env("CHART_KEY", ""),
+        chart_model=_env("CHART_MODEL", "gpt-5.5"),
+        price_chart_cents=int(_env("PRICE_CHART_CENTS", "20")),
+        chart_exec_timeout=int(_env("CHART_EXEC_TIMEOUT", "60")),
         admin_password=_env("ADMIN_PASSWORD", required=True),
         session_secret=session_secret,
         database_url=_resolve_database_url(),

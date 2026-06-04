@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260531e" />
+<link rel="stylesheet" href="/static/app.css?v=20260531g" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -109,11 +109,15 @@
         </button>
         <button class="sidebar-tab tab-btn" data-tab="icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
-          图标矢量
+          图标
         </button>
         <button class="sidebar-tab tab-btn" data-tab="cad">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>
-          文字转 CAD
+          CAD
+        </button>
+        <button class="sidebar-tab tab-btn" data-tab="chart">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg>
+          图表
         </button>
       </div>
 
@@ -314,6 +318,28 @@
           <div class="gen-status" id="cad-status"></div>
         </div>
       </div>
+
+      <!-- =============== Pane: 公式 / 图表 =============== -->
+      <div id="pane-chart" class="tab-pane hidden">
+        <div class="panel-section">
+          <div class="panel-title">需求描述（公式 / 理工科图表）</div>
+          <textarea id="chart-prompt" placeholder="例：画出 y=sin(x) 与 y=cos(x) 在 0 到 2π 的曲线，标注坐标轴和图例；或：排版公式 n̂ = f/‖f‖"></textarea>
+        </div>
+        <div class="panel-section">
+          <div class="hint">
+            由 gpt-5.5 编写 matplotlib 代码并在服务器渲染成 PNG。支持数学公式(LaTeX mathtext)与各类科学图表。
+            生成后可直接下载图片。生成较慢（约 30–90 秒）。
+          </div>
+        </div>
+        <div class="sidebar-foot">
+          <button class="gen-btn" id="chart-generate-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg>
+            生成图表
+            <span class="price-pill">¥<span id="price-chart-pill">0.20</span></span>
+          </button>
+          <div class="gen-status" id="chart-status"></div>
+        </div>
+      </div>
     </aside>
 
     <!-- =============== 中央画布 =============== -->
@@ -454,6 +480,7 @@ let currentEngine = "claude";
 let priceClaudeCents = 5;
 let priceRecraftCents = 300;
 let priceCadCents = 1000;
+let priceChartCents = 20;
 let lastCadFiles = null;
 
 const $ = (id) => document.getElementById(id);
@@ -550,6 +577,8 @@ async function showApp(me) {
   priceRecraftCents = me.price_recraft_cents || 300;
   priceCadCents = me.price_cad_cents || 1000;
   $("price-cad-pill").textContent = (priceCadCents / 100).toFixed(2);
+  priceChartCents = me.price_chart_cents || 20;
+  $("price-chart-pill").textContent = (priceChartCents / 100).toFixed(2);
   updateIconPriceLabel();
   await refreshHistory();
 }
@@ -586,7 +615,7 @@ async function refreshHistory() {
 
     for (const it of data.items) {
       const failed = it.status === "failed";
-      const kindLabel = it.kind === "icon" ? "SVG" : (it.kind === "cad" ? "CAD" : "图片");
+      const kindLabel = it.kind === "icon" ? "SVG" : (it.kind === "cad" ? "CAD" : (it.kind === "chart" ? "图表" : "图片"));
 
       const card = document.createElement("div");
       card.className = "g-card" + (failed ? " is-failed" : "");
@@ -881,6 +910,7 @@ function showErrorState(message) {
     const t = activeTab();
     if (t === "icon") generateIcon();
     else if (t === "cad") generateCad();
+    else if (t === "chart") generateChart();
     else generate();
   };
   $("canvas-foot").classList.add("hidden");
@@ -1167,6 +1197,62 @@ async function generateCad() {
   } finally { btn.disabled = false; }
 }
 
+/* ===================== 公式 / 图表 ===================== */
+async function generateChart() {
+  const prompt = $("chart-prompt").value.trim();
+  if (!prompt) { toast("需求描述不能为空", "error"); return; }
+  const fd = new FormData();
+  fd.append("access_key", accessKey);
+  fd.append("prompt", prompt);
+
+  const btn = $("chart-generate-btn");
+  btn.disabled = true;
+  showLoading("图表生成中", "gpt-5.5 写 matplotlib 代码并渲染 · 约 30-90 秒");
+  $("chart-status").textContent = "提交中...";
+  try {
+    const data = await api("/api/generate-chart", { method: "POST", body: fd });
+    $("balance").textContent = fmtMoney(data.balance_cents);
+    const id = data.generation_id;
+    refreshHistory();
+    const started = Date.now();
+    const MAX_MS = 6 * 60 * 1000;
+    while (true) {
+      await new Promise((r) => setTimeout(r, 3000));
+      let s;
+      try { s = await api(`/api/generation/${id}`); }
+      catch (e) { continue; }
+      if (s.status === "success" && s.result_url) {
+        showImageResult(s.result_url + "?access_key=" + encodeURIComponent(accessKey));
+        $("download-link").download = "chart-" + id + ".png";
+        $("status").textContent = "";
+        $("chart-status").textContent = "完成";
+        toast("生成成功", "success");
+        refreshHistory();
+        break;
+      }
+      if (s.status === "failed") {
+        showErrorState(s.error || "生成失败");
+        $("chart-status").textContent = "";
+        toast("生成失败：" + (s.error || ""), "error");
+        refreshMe(); refreshHistory();
+        break;
+      }
+      const sec = Math.round((Date.now() - started) / 1000);
+      $("chart-status").textContent = `生成中… 已等待 ${sec}s`;
+      if (Date.now() - started > MAX_MS) {
+        showErrorState("生成超时，请稍后在「生成历史」里查看结果");
+        $("chart-status").textContent = "";
+        break;
+      }
+    }
+  } catch (e) {
+    showErrorState(e.message);
+    $("chart-status").textContent = "";
+    toast("提交失败：" + e.message, "error");
+    refreshMe();
+  } finally { btn.disabled = false; }
+}
+
 async function svgToPngDownload(filename, target = 1024) {
   if (!lastSvgText) return;
   const blob = new Blob([lastSvgText], { type: "image/svg+xml" });
@@ -1317,6 +1403,7 @@ $("logout").onclick = (e) => { e.preventDefault(); logout(); };
 $("generate-btn").onclick = generate;
 $("icon-generate-btn").onclick = generateIcon;
 $("cad-generate-btn").onclick = generateCad;
+$("chart-generate-btn").onclick = generateChart;
 
 // 工具栏
 $("download-png-from-svg").onclick = () => svgToPngDownload("icon", 1024);
@@ -1407,6 +1494,7 @@ document.querySelectorAll(".tab-btn").forEach((b) => {
     $("pane-image").classList.toggle("hidden", t !== "image");
     $("pane-icon").classList.toggle("hidden", t !== "icon");
     $("pane-cad").classList.toggle("hidden", t !== "cad");
+    $("pane-chart").classList.toggle("hidden", t !== "chart");
   };
 });
 
@@ -1426,7 +1514,7 @@ document.querySelectorAll(".empty-state .ex").forEach((b) => {
   b.onclick = () => {
     const txt = b.dataset.ex;
     const t = activeTab();
-    const target = t === "icon" ? "icon-prompt" : (t === "cad" ? "cad-prompt" : "prompt");
+    const target = t === "icon" ? "icon-prompt" : (t === "cad" ? "cad-prompt" : (t === "chart" ? "chart-prompt" : "prompt"));
     $(target).value = txt;
     $(target).focus();
   };

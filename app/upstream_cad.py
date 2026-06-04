@@ -8,18 +8,13 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 
 import httpx
 
-from . import cad_runner
+from . import cad_runner, db
 
 log = logging.getLogger("image2.cad")
-
-CLAUDE_BASE = os.getenv("CLAUDE_BASE", "https://claude.moon9.cloud").rstrip("/")
-CLAUDE_KEY = os.getenv("CLAUDE_KEY", "")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "kiro-opus-4.7")
 
 # 注意：整条管线（LLM 调用 + 子进程执行，含重修）的最坏耗时必须留在后台清扫
 # 任务的 pending 超时窗口（tasks.GEN_TIMEOUT_SECONDS=300s）以内，否则会与 reaper
@@ -86,16 +81,19 @@ def _extract_plan(text: str) -> str:
 
 
 async def _call_claude(messages: list[dict]) -> str:
-    """调一次 Claude /v1/messages，返回文本内容。骨架照搬 upstream_claude。"""
-    url = f"{CLAUDE_BASE}/v1/messages"
+    """调一次 Claude /v1/messages，返回文本内容。配置取自管理面板(DB)。"""
+    cfg = await db.get_provider("claude")
+    if not cfg["key"]:
+        raise CadError("Claude 中转未配置（管理面板 → AI 提供商 → 文字转CAD/矢量）")
+    url = f"{cfg['base']}/v1/messages"
     body = {
-        "model": CLAUDE_MODEL,
+        "model": cfg["model"],
         "max_tokens": 4096,
         "system": _SYSTEM_PROMPT,
         "messages": messages,
     }
     headers = {
-        "x-api-key": CLAUDE_KEY,
+        "x-api-key": cfg["key"],
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
@@ -159,9 +157,6 @@ async def generate_cad(prompt: str, *, max_repairs: int = 1) -> tuple[dict[str, 
     返回 (artifacts, meta)，artifacts = {"step":bytes,"stl":bytes,"glb":bytes}，
     meta = {"repairs": n, "plan": str}。全部尝试失败抛 CadError。
     """
-    if not CLAUDE_KEY:
-        raise CadError("CLAUDE_KEY 未配置")
-
     messages: list[dict] = [{"role": "user", "content": f"需求：{prompt.strip()}"}]
     last_err = "未知错误"
     plan = ""

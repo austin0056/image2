@@ -4,19 +4,14 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 from xml.etree import ElementTree as ET
 
 import httpx
 
-from app import icon_search
+from app import db, icon_search
 
 log = logging.getLogger("image2.claude")
-
-CLAUDE_BASE = os.getenv("CLAUDE_BASE", "https://claude.moon9.cloud").rstrip("/")
-CLAUDE_KEY = os.getenv("CLAUDE_KEY", "")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "kiro-opus-4.7")
 
 # 上游 nginx 大约 120s 切断；这里设 110s 给一点余量
 _TIMEOUT = httpx.Timeout(connect=15.0, read=110.0, write=60.0, pool=15.0)
@@ -188,8 +183,9 @@ async def generate_icon_svg(
     """生成图标 SVG。
     返回 (svg, quality_warnings, sample_names)
     """
-    if not CLAUDE_KEY:
-        raise ClaudeError("CLAUDE_KEY 未配置")
+    cfg = await db.get_provider("claude")
+    if not cfg["key"]:
+        raise ClaudeError("Claude 中转未配置（管理面板 → AI 提供商）")
 
     # 1. 检索 few-shot 样本
     try:
@@ -202,9 +198,9 @@ async def generate_icon_svg(
 
     # 2. 构造 prompt
     dual = bool(color_primary or color_secondary) or library == "duotone"
-    url = f"{CLAUDE_BASE}/v1/messages"
+    url = f"{cfg['base']}/v1/messages"
     body = {
-        "model": CLAUDE_MODEL,
+        "model": cfg["model"],
         "max_tokens": 3072,
         "system": _build_system_prompt(library, examples, dual_color=dual),
         "messages": [
@@ -217,14 +213,14 @@ async def generate_icon_svg(
         ],
     }
     headers = {
-        "x-api-key": CLAUDE_KEY,
+        "x-api-key": cfg["key"],
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
 
     log.info(
         "claude POST %s model=%s library=%s dual=%s samples=%s",
-        url, CLAUDE_MODEL, library, dual, sample_names,
+        url, cfg["model"], library, dual, sample_names,
     )
 
     last_err = "未知错误"

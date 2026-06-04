@@ -23,8 +23,8 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 验证 build123d 能 import；缺库会让构建直接失败，避免上线后才发现
-RUN python -c "import build123d; print('build123d', build123d.__version__)"
+# 验证关键原生依赖能 import；缺库会让构建直接失败，避免上线后才发现
+RUN python -c "import build123d, matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot; print('build123d', build123d.__version__, 'matplotlib', matplotlib.__version__)"
 
 COPY . .
 

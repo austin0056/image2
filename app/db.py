@@ -124,6 +124,11 @@ async def _init_schema() -> None:
             "image_provider.model": settings.upstream_model,
             "image_provider.price_cents": str(settings.price_cents),
         }
+        # 其它上游（CAD/矢量Claude、Recraft、公式图表）也用 app_settings 存，环境变量仅首次初始化
+        for name, d in _PROVIDER_DEFAULTS().items():
+            defaults[f"provider.{name}.base"] = d["base"]
+            defaults[f"provider.{name}.key"] = d["key"]
+            defaults[f"provider.{name}.model"] = d["model"]
         for key, value in defaults.items():
             await con.execute(
                 """
@@ -204,6 +209,64 @@ async def update_image_provider_settings(
                     key, value or "",
                 )
     return await get_image_provider_settings(reveal_key=False)
+
+
+# ----- 通用上游提供商设置（claude / recraft / chart） -----
+
+def _PROVIDER_DEFAULTS() -> dict[str, dict[str, str]]:
+    return {
+        "claude": {"base": settings.claude_base, "key": settings.claude_key, "model": settings.claude_model},
+        "recraft": {"base": settings.recraft_base, "key": settings.recraft_key, "model": settings.recraft_model},
+        "chart": {"base": settings.chart_base, "key": settings.chart_key, "model": settings.chart_model},
+    }
+
+PROVIDER_NAMES = ("claude", "recraft", "chart")
+
+
+async def get_provider(name: str, *, reveal_key: bool = True) -> dict[str, Any]:
+    """返回某上游的 base/key/model。reveal_key=False 时仅脱敏。"""
+    if name not in PROVIDER_NAMES:
+        raise ValueError(f"未知 provider: {name}")
+    d = _PROVIDER_DEFAULTS()[name]
+    keys = {k: f"provider.{name}.{k}" for k in ("base", "key", "model")}
+    async with pool().acquire() as con:
+        rows = await con.fetch(
+            "SELECT key, value FROM app_settings WHERE key = ANY($1::text[])",
+            list(keys.values()),
+        )
+    values = {r["key"]: r["value"] for r in rows}
+    raw_key = values.get(keys["key"], d["key"]) or ""
+    return {
+        "base": (values.get(keys["base"]) or d["base"] or "").rstrip("/"),
+        "key": raw_key if reveal_key else "",
+        "key_set": bool(raw_key),
+        "key_preview": _mask_secret(raw_key),
+        "model": values.get(keys["model"]) or d["model"] or "",
+    }
+
+
+async def update_provider(name: str, *, base: str, model: str, key: str | None = None) -> dict[str, Any]:
+    if name not in PROVIDER_NAMES:
+        raise ValueError(f"未知 provider: {name}")
+    updates = {
+        f"provider.{name}.base": base.rstrip("/"),
+        f"provider.{name}.model": model,
+    }
+    if key is not None:
+        updates[f"provider.{name}.key"] = key
+    async with pool().acquire() as con:
+        async with con.transaction():
+            for k, v in updates.items():
+                await con.execute(
+                    """
+                    INSERT INTO app_settings(key, value, updated_at)
+                    VALUES($1, $2, now())
+                    ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value, updated_at = now()
+                    """,
+                    k, v or "",
+                )
+    return await get_provider(name, reveal_key=False)
 
 
 # ----- 用户 -----

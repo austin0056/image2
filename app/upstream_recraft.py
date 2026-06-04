@@ -14,11 +14,10 @@ from xml.etree import ElementTree as ET
 
 import httpx
 
+from . import db
+
 log = logging.getLogger("image2.recraft")
 
-OR_BASE = os.getenv("OPENROUTER_BASE", "https://openrouter.ai/api/v1").rstrip("/")
-OR_KEY = os.getenv("OPENROUTER_KEY", "")
-OR_MODEL = os.getenv("RECRAFT_MODEL", "recraft/recraft-v4.1-pro-vector")
 OR_REFERER = os.getenv("OPENROUTER_REFERER", "https://image2.zeabur.app")
 OR_TITLE = os.getenv("OPENROUTER_TITLE", "image2")
 
@@ -126,8 +125,9 @@ async def generate_vector(
     返回 (svg_text, meta)
     meta 含: cost_usd, completion_tokens, image_tokens, prompt_used
     """
-    if not OR_KEY:
-        raise RecraftError("OPENROUTER_KEY 未配置")
+    cfg = await db.get_provider("recraft")
+    if not cfg["key"]:
+        raise RecraftError("Recraft/OpenRouter 未配置（管理面板 → AI 提供商 → 矢量-高级）")
     if style not in RECRAFT_STYLES:
         log.warning("未知 style %r,降级为默认", style)
         style = DEFAULT_STYLE
@@ -135,22 +135,22 @@ async def generate_vector(
     final_prompt = _build_prompt(prompt, style, color_primary, color_secondary)
 
     body = {
-        "model": OR_MODEL,
+        "model": cfg["model"],
         "messages": [{"role": "user", "content": final_prompt}],
         "modalities": ["image"],  # 关键:Recraft 只支持 image 输出
     }
     headers = {
-        "Authorization": f"Bearer {OR_KEY}",
+        "Authorization": f"Bearer {cfg['key']}",
         "Content-Type": "application/json",
         # OpenRouter 推荐的标识头
         "HTTP-Referer": OR_REFERER,
         "X-Title": OR_TITLE,
     }
-    url = f"{OR_BASE}/chat/completions"
+    url = f"{cfg['base']}/chat/completions"
 
     log.info(
         "recraft POST %s model=%s style=%s prompt=%r",
-        url, OR_MODEL, style, final_prompt[:120],
+        url, cfg["model"], style, final_prompt[:120],
     )
 
     last_err = "未知错误"

@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
-from . import db, storage, upstream, upstream_cad, upstream_claude, upstream_recraft
+from . import db, storage, upstream, upstream_cad, upstream_chart, upstream_claude, upstream_recraft
 from .config import settings
 from .deps import current_user, require_user
 
@@ -52,6 +52,7 @@ async def api_me(body: KeyBody) -> dict[str, Any]:
         "price_cents": image_provider["price_cents"],
         "price_recraft_cents": settings.price_recraft_cents,
         "price_cad_cents": settings.price_cad_cents,
+        "price_chart_cents": settings.price_chart_cents,
     }
 
 
@@ -518,3 +519,46 @@ async def get_cad_file(
     if not inline:
         headers["Content-Disposition"] = f'attachment; filename="model-{generation_id}.{fmt}"'
     return StreamingResponse(io.BytesIO(body), media_type=content_type, headers=headers)
+
+
+# ---------- 公式/理工科图表（gpt-5.5 → matplotlib → PNG） ----------
+
+_chart_jobs: set[asyncio.Task] = set()
+
+
+async def _run_chart_job(gen_id: int, user_id: int, cost: int, prompt: str) -> None:
+    """后台执行公式/图表生成。成功写 result_key(PNG)，失败退款。"""
+    try:
+        png, meta = await upstream_chart.generate_chart(prompt)
+        result_key = storage.make_key("results")
+        await storage.upload_bytes(result_key, png)
+        await db.mark_success(gen_id, result_key)
+        log.info("chart job 成功 user=%s gen=%s repairs=%s", user_id, gen_id, meta.get("repairs"))
+    except upstream_chart.ChartError as e:
+        log.warning("chart job 上游失败 user=%s gen=%s: %s", user_id, gen_id, e)
+        await db.mark_failed_and_refund(gen_id, user_id, cost, str(e))
+    except Exception as e:
+        log.exception("chart job 内部异常 user=%s gen=%s", user_id, gen_id)
+        await db.mark_failed_and_refund(gen_id, user_id, cost, str(e))
+
+
+@router.post("/api/generate-chart")
+async def api_generate_chart(
+    access_key: str = Form(...),
+    prompt: str = Form(...),
+) -> dict[str, Any]:
+    user = await require_user(access_key)
+    prompt = prompt.strip()
+    if not prompt:
+        raise HTTPException(400, "需求描述不能为空")
+    cost = settings.price_chart_cents
+    gen_id, balance_after = await db.try_charge_and_create(
+        user_id=user["id"], prompt=prompt, size="chart",
+        has_ref=False, ref_key=None, cost_cents=cost, kind="chart",
+    )
+    if gen_id is None:
+        raise HTTPException(402, "余额不足")
+    task = asyncio.create_task(_run_chart_job(gen_id, user["id"], cost, prompt))
+    _chart_jobs.add(task)
+    task.add_done_callback(_chart_jobs.discard)
+    return {"generation_id": gen_id, "status": "pending", "balance_cents": balance_after}

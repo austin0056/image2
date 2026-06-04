@@ -11,3 +11,5 @@ rapidfuzz>=3.0
 # 文字转 CAD：build123d 会拉入 cadquery-ocp（OpenCascade 原生 wheel，体积数百 MB）。
 # Linux 容器通常还需系统库 libgl1/libglu1-mesa/libxrender1，详见 README 部署说明。
 build123d==0.10.0
+# 公式/理工科图表：gpt-5.5 出 matplotlib 代码，服务器渲染 PNG
+matplotlib==3.9.2

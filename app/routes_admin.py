@@ -39,6 +39,12 @@ class ImageProviderSettingsBody(BaseModel):
     price_cents: int = Field(..., ge=0, le=1_000_000)
 
 
+class ProviderSettingsBody(BaseModel):
+    base: str = Field(..., min_length=1, max_length=500)
+    model: str = Field(..., min_length=1, max_length=200)
+    key: str | None = Field(default=None, max_length=5000)  # 空/None=不改
+
+
 @router.post("/api/admin/login")
 async def admin_login(body: LoginBody, response: Response) -> dict[str, Any]:
     # 去掉首尾空白：避免在 Zeabur 粘贴 ADMIN_PASSWORD 时带了行尾换行/空格导致永远对不上。
@@ -95,6 +101,27 @@ async def admin_update_image_provider_settings(body: ImageProviderSettingsBody) 
         price_cents=body.price_cents,
         upstream_key=key or None,
     )
+
+
+@router.get("/api/admin/settings/provider/{name}", dependencies=[Depends(require_admin)])
+async def admin_get_provider(name: str) -> dict[str, Any]:
+    if name not in db.PROVIDER_NAMES:
+        raise HTTPException(404, "未知提供商")
+    return await db.get_provider(name, reveal_key=False)
+
+
+@router.patch("/api/admin/settings/provider/{name}", dependencies=[Depends(require_admin)])
+async def admin_update_provider(name: str, body: ProviderSettingsBody) -> dict[str, Any]:
+    if name not in db.PROVIDER_NAMES:
+        raise HTTPException(404, "未知提供商")
+    base = body.base.strip().rstrip("/")
+    model = body.model.strip()
+    if not base.startswith(("http://", "https://")):
+        raise HTTPException(400, "API Base URL 必须以 http:// 或 https:// 开头")
+    if not model:
+        raise HTTPException(400, "模型名不能为空")
+    key = body.key.strip() if body.key is not None else ""
+    return await db.update_provider(name, base=base, model=model, key=key or None)
 
 
 @router.get("/api/admin/payments", dependencies=[Depends(require_admin)])

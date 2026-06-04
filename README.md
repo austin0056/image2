@@ -71,6 +71,21 @@ Python 代码 → **在服务器子进程里执行** → 产出 STEP / STL / GLB
   清空环境变量 + 临时目录 + 危险调用静态拦截」做务实隔离（见 `app/cad_runner.py`），
   这是降低风险而非根除。生产硬化的理想方案是独立容器 / gVisor 沙箱（后续 TODO）。
 
+## AI 提供商（全部后台可配，不依赖环境变量）
+
+管理面板 →「图片提供商」分区可配置所有上游，保存即生效、存数据库；环境变量仅作首次初始化默认值：
+
+- **图片**：OpenAI Images 兼容（如 `gpt-image-1`）。
+- **文字转CAD / 矢量·快速（Claude 中转）**：Anthropic `/v1/messages`，CAD 与图标快速模式共用。
+- **矢量·高级（Recraft / OpenRouter）**：`chat/completions` + `modalities=image`。
+- **公式 / 图表（gpt-5.5）**：OpenAI 兼容 `chat/completions`，模型产出 matplotlib 代码、服务器渲染 PNG。
+
+对应一次性初始化环境变量（可不填，直接后台配）：`CLAUDE_BASE/KEY/MODEL`、`OPENROUTER_BASE/KEY`、`RECRAFT_MODEL`、`CHART_BASE/KEY/MODEL`、价格 `PRICE_CHART_CENTS`。
+
+## 公式 / 理工科图表（matplotlib）
+
+用户面板「图表」标签：输入需求 → gpt-5.5 写 matplotlib 代码 → **服务器子进程执行**渲染成 PNG → 预览并可直接下载。支持 LaTeX mathtext 公式与各类科学图表。异步任务 + 轮询（不受 Cloudflare 100s 限制）。安全隔离同 CAD（见 `app/chart_runner.py`）。依赖 `matplotlib`（已在 requirements/Dockerfile）。
+
 ## 安全提示
 
 - `.env` 已加入 `.gitignore`，不要提交真 key

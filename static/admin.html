@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260531f" />
+<link rel="stylesheet" href="/static/app.css?v=20260531g" />
 <style>
   /* admin 页紫色品牌色，覆盖默认橙 */
   body { overflow: auto; }
@@ -145,6 +145,48 @@
         <button class="btn ghost" id="reload-provider">重新加载</button>
         <span class="dim" style="font-size:12px;">环境变量仅作为首次初始化/兜底默认值。</span>
       </div>
+
+      <div class="prov-block" data-prov="claude">
+        <div class="prov-head">
+          <div><strong>文字转CAD / 矢量·快速（Claude 中转）</strong>
+            <div class="dim" style="font-size:12px;">Anthropic /v1/messages 协议；CAD 与图标「快速模式」共用此配置。</div></div>
+          <span class="dim prov-state">加载中…</span>
+        </div>
+        <div class="kv-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end;">
+          <div><label class="prov-label">API Base URL</label><input class="prov-base" type="text" placeholder="https://claude.moon9.cloud" /></div>
+          <div><label class="prov-label">模型</label><input class="prov-model" type="text" placeholder="kiro-opus-4.7" /></div>
+          <div><label class="prov-label">API Key</label><input class="prov-key" type="password" placeholder="留空则不修改现有密钥" autocomplete="new-password" /></div>
+        </div>
+        <div style="margin-top:12px;"><button class="btn primary prov-save">保存</button></div>
+      </div>
+
+      <div class="prov-block" data-prov="recraft">
+        <div class="prov-head">
+          <div><strong>矢量·高级（Recraft / OpenRouter）</strong>
+            <div class="dim" style="font-size:12px;">OpenRouter chat/completions，modalities=image，输出真 SVG。</div></div>
+          <span class="dim prov-state">加载中…</span>
+        </div>
+        <div class="kv-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end;">
+          <div><label class="prov-label">API Base URL</label><input class="prov-base" type="text" placeholder="https://openrouter.ai/api/v1" /></div>
+          <div><label class="prov-label">模型</label><input class="prov-model" type="text" placeholder="recraft/recraft-v4.1-pro-vector" /></div>
+          <div><label class="prov-label">API Key</label><input class="prov-key" type="password" placeholder="留空则不修改现有密钥" autocomplete="new-password" /></div>
+        </div>
+        <div style="margin-top:12px;"><button class="btn primary prov-save">保存</button></div>
+      </div>
+
+      <div class="prov-block" data-prov="chart">
+        <div class="prov-head">
+          <div><strong>公式 / 理工科图表（gpt-5.5）</strong>
+            <div class="dim" style="font-size:12px;">OpenAI 兼容 chat/completions；模型出 matplotlib 代码，服务器渲染成 PNG。</div></div>
+          <span class="dim prov-state">加载中…</span>
+        </div>
+        <div class="kv-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end;">
+          <div><label class="prov-label">API Base URL</label><input class="prov-base" type="text" placeholder="https://api.86gamestore.com/v1" /></div>
+          <div><label class="prov-label">模型</label><input class="prov-model" type="text" placeholder="gpt-5.5" /></div>
+          <div><label class="prov-label">API Key</label><input class="prov-key" type="password" placeholder="留空则不修改现有密钥" autocomplete="new-password" /></div>
+        </div>
+        <div style="margin-top:12px;"><button class="btn primary prov-save">保存</button></div>
+      </div>
     </div>
 
     <!-- Users -->
@@ -267,7 +309,7 @@ function showSection(sec) {
     b.classList.toggle("active", b.dataset.sec === sec));
   // 切到某模块时刷新其数据，保持最新
   if (sec === "overview") refreshStats();
-  else if (sec === "provider") refreshImageProviderSettings();
+  else if (sec === "provider") { refreshImageProviderSettings(); loadAllProviders(); }
   else if (sec === "users") refreshUsers();
   else if (sec === "generations") refreshGenerations();
   else if (sec === "payments") refreshPayments();
@@ -336,6 +378,43 @@ async function saveImageProviderSettings() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// 其它提供商（claude / recraft / chart）—— 通用加载/保存
+const OTHER_PROVIDERS = ["claude", "recraft", "chart"];
+function loadAllProviders() { OTHER_PROVIDERS.forEach(loadProvider); }
+async function loadProvider(name) {
+  const block = document.querySelector(`.prov-block[data-prov="${name}"]`);
+  if (!block) return;
+  try {
+    const s = await api(`/api/admin/settings/provider/${name}`);
+    block.querySelector(".prov-base").value = s.base || "";
+    block.querySelector(".prov-model").value = s.model || "";
+    const k = block.querySelector(".prov-key");
+    k.value = "";
+    k.placeholder = s.key_set ? `留空则保留现有密钥（${s.key_preview}）` : "尚未设置，请输入 API Key";
+    block.querySelector(".prov-state").textContent = s.key_set ? `密钥已设置：${s.key_preview}` : "密钥未设置";
+  } catch (e) {
+    block.querySelector(".prov-state").textContent = "加载失败";
+  }
+}
+async function saveProvider(name) {
+  const block = document.querySelector(`.prov-block[data-prov="${name}"]`);
+  const base = block.querySelector(".prov-base").value.trim();
+  const model = block.querySelector(".prov-model").value.trim();
+  const key = block.querySelector(".prov-key").value.trim();
+  if (!base || !model) { toast("请填写 Base URL 和模型", "error"); return; }
+  const btn = block.querySelector(".prov-save");
+  btn.disabled = true;
+  try {
+    await api(`/api/admin/settings/provider/${name}`, {
+      method: "PATCH",
+      body: JSON.stringify({ base, model, key: key || null }),
+    });
+    toast("已保存", "success");
+    await loadProvider(name);
+  } catch (e) { toast("保存失败：" + e.message, "error"); }
+  finally { btn.disabled = false; }
 }
 async function refreshPayments() {
   const qs = new URLSearchParams();
@@ -524,6 +603,9 @@ $("pay-filter-status").onchange = refreshPayments;
 $("pay-filter-key").addEventListener("keydown", (e) => { if (e.key === "Enter") refreshPayments(); });
 $("save-provider").onclick = saveImageProviderSettings;
 $("reload-provider").onclick = refreshImageProviderSettings;
+document.querySelectorAll(".prov-save").forEach((b) => {
+  b.onclick = () => saveProvider(b.closest(".prov-block").dataset.prov);
+});
 ["provider-base", "provider-model", "provider-key", "provider-price"].forEach((id) => {
   $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") saveImageProviderSettings(); });
 });
