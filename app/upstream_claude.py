@@ -94,11 +94,16 @@ def _build_request(fmt: str, base: str, model: str, key: str, system: str, messa
 
 
 async def complete_text(system: str, messages: list[dict], *, max_tokens: int = 4096,
-                        timeout=None, retries: int = 2, err_cls: type = ClaudeError) -> str:
+                        timeout=None, retries: int = 1, err_cls: type = ClaudeError) -> str:
     """统一的 Claude 中转文本补全。配置取自 provider="claude"。
 
-    api_style=auto 时按模型名选协议；收到 404/405（路径不存在）时自动换另一种协议，
-    兼容只提供 OpenAI /chat/completions 的中转。
+    协议选择与回退（重要：必须有界，避免拖到被清扫任务超时退款）：
+    - api_style=auto 时按模型名选协议顺序。
+    - 只有 404/405（路径不存在）才**快速**换下一种协议——这是发现正确协议的唯一信号。
+    - 读超时：请求已发出、只是慢；换协议只会再等一遍，故**直接失败**（不跨协议放大耗时）。
+    - 连接失败：同一 host 换协议也连不上，重试一次后失败。
+    - 其它 4xx（401/400/模型不存在等）：换协议无意义，带上游原文直接报错。
+    - 5xx：瞬时错误，重试一次后再换协议。
     """
     cfg = await db.get_provider("claude")
     if not cfg["key"]:
@@ -113,20 +118,29 @@ async def complete_text(system: str, messages: list[dict], *, max_tokens: int = 
             for attempt in range(retries + 1):
                 try:
                     resp = await client.post(url, json=body, headers=headers)
-                except httpx.HTTPError as e:
-                    last_err = f"连接失败: {e}"
+                except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                    last_err = f"连接失败（请检查 Base URL/网络）: {e}"
                     if attempt < retries:
                         continue
-                    break  # 换下一种协议
+                    raise err_cls(last_err)
+                except httpx.TimeoutException as e:
+                    # 读/写/连接池超时：请求已发出但慢，换协议或重试都只会再等一遍 → 快速失败
+                    raise err_cls(f"上游响应超时（{type(e).__name__}，模型太慢或中转排队）；"
+                                  f"可在管理面板把该上游模型换快一点，或指定 API 风格。")
+                except httpx.HTTPError as e:
+                    last_err = f"网络错误: {e}"
+                    if attempt < retries:
+                        continue
+                    raise err_cls(last_err)
                 if resp.status_code in (404, 405):
                     last_err = f"{fmt} {resp.status_code}: 该中转无此协议路径"
                     log.warning("claude %s 返回 %s，自动尝试下一种协议", url, resp.status_code)
-                    break
+                    break  # 快速换下一种协议
                 if resp.status_code in (502, 503, 504):
                     last_err = f"{fmt} {resp.status_code}: {resp.text[:200]}"
                     if attempt < retries:
                         continue
-                    break
+                    break  # 5xx 用尽 → 换下一种协议
                 if resp.status_code >= 400:
                     log.error("claude %s %s: %s", fmt, resp.status_code, resp.text[:800])
                     try:
