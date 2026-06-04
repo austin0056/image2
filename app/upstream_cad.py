@@ -45,9 +45,23 @@ _SYSTEM_PROMPT = """你是一名精通 build123d 的参数化 CAD 工程师。�
 # 这里是完整的 build123d 代码，最后 result = ...
 ```
 
+# build123d API 正确用法（高频错误，务必遵守）
+- 选圆形边：用 `obj.edges().filter_by(GeomType.CIRCLE)`。
+  绝不要写 `e.geom_type()`——geom_type 是**属性不是方法**（调用它会报 'GeomType' object is not callable）；
+  也绝不要 `isinstance(e.geom_type, Circle)`——Circle 是 2D 草图类、不是边的类型。
+  确需判断时用比较：`e.geom_type == GeomType.CIRCLE`（同理 LINE/ELLIPSE/BSPLINE 等）。
+- 选面：按方向用 `obj.faces().filter_by(Plane.XY)`，或取顶面/底面 `obj.faces().sort_by(Axis.Z)[-1]` / `[0]`。
+- 选边/面还可用 `.filter_by(Axis.Z)`、`.group_by(Axis.Z)`、`.sort_by(...)`；用 `[...]` 取子集前先确认非空。
+- 圆角/倒角：`fillet(edges, radius=r)`、`chamfer(edges, length=c)`，edges 传选择集（可空判断后再用）。
+- 打孔优先布尔减：`result = base - Pos(x, y, z) * Cylinder(radius=r, height=h)`；
+  代数建模里平移用 `Pos(x,y,z) * 形体`、旋转用 `Rot(rx,ry,rz) * 形体`，不要臆造 `.translate()/.move()` 之类方法名。
+- 这些名字已随 `from build123d import *` 导入，直接用、别重新定义：
+  GeomType、Axis、Plane、Align、Mode、Pos、Rot、Box、Cylinder、Sphere、Cone、fillet、chamfer 等。
+
 # 风格提示
 - 优先用 Builder 模式（with BuildPart() as ...）或直接的代数建模（Box/Cylinder/...），怎么稳怎么来。
 - 复杂特征（孔、圆角、倒角）确认引用的面/边存在再操作，避免空选择集报错。
+- 能用布尔运算（+ - &）和 filter_by 解决的，就别手写几何类型判断，更稳。
 """
 
 
@@ -56,7 +70,10 @@ def _build_repair_prompt(prev_code: str, error: str) -> str:
         "上一版代码执行失败，请修复后重新输出完整代码。\n\n"
         f"# 出错代码\n```python\n{prev_code}\n```\n\n"
         f"# 运行报错（截断）\n{error[-1200:]}\n\n"
-        "请定位根因并修正，仍按 [PLAN] + ```python``` 代码块格式输出完整可执行代码。"
+        "请定位根因并修正。注意 build123d 高频错误：geom_type 是属性不是方法"
+        "（用 `e.geom_type == GeomType.CIRCLE` 或 `edges().filter_by(GeomType.CIRCLE)`，"
+        "不要 `e.geom_type()`，也不要对 Circle 用 isinstance）；面/边选择集取下标前先确认非空。"
+        "仍按 [PLAN] + ```python``` 代码块格式输出完整可执行代码。"
     )
 
 
