@@ -1086,44 +1086,62 @@ input[type="range"] {
    ============================================================ */
 .admin-shell { display: grid; grid-template-rows: var(--topbar-h) 1fr; height: 100vh; }
 .admin-main {
-  overflow: auto; padding: var(--s-6) var(--s-8);
+  overflow: auto; padding: 28px 32px;
   background: var(--c-bg);
 }
 /* 宽屏下内容居中限宽，避免卡片/表格被拉得过宽 */
 .admin-main > * { max-width: 1280px; margin-left: auto; margin-right: auto; }
 .admin-card {
   background: var(--c-surface); border: 1px solid var(--c-line);
-  border-radius: var(--r-xl); padding: var(--s-6);
-  margin-bottom: var(--s-5);
+  border-radius: var(--r-xl); padding: 22px 26px;
+  margin-bottom: 22px;
   box-shadow: var(--shadow-xs);
 }
-.admin-card h3 { margin: 0 0 var(--s-4); font-size: 15px; font-weight: 600; }
+/* 统一的模块标题栏：标题左 + 操作右，底部分隔线，模块间界限清晰 */
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  margin-bottom: 18px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+.admin-card h3 {
+  margin: 0; font-size: 16px; font-weight: 650; color: var(--c-text);
+  letter-spacing: -.01em; display: flex; align-items: center; gap: 9px;
+}
+.admin-card h3::before {
+  content: ""; flex-shrink: 0; width: 4px; height: 16px; border-radius: 3px;
+  background: linear-gradient(180deg, #8C3BFF, #FF3B7C);
+}
+
 table.data {
   width: 100%; border-collapse: collapse; font-size: 13px;
 }
 table.data th, table.data td {
-  padding: 10px 12px; text-align: left;
+  padding: 11px 14px; text-align: left;
   border-bottom: 1px solid var(--c-line-soft);
+  vertical-align: middle;
 }
 table.data th {
-  font-weight: 500; color: var(--c-text-mute); font-size: 11.5px;
-  text-transform: uppercase; letter-spacing: .04em;
-  background: var(--c-surface-sunken);
+  font-weight: 600; color: var(--c-text-2); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .05em;
+  background: var(--c-surface-sunken); white-space: nowrap;
 }
-table.data tr:hover td { background: var(--c-surface-sunken); }
-table.data .mono { font-family: var(--font-mono); font-size: 12px; }
+table.data tbody tr:nth-child(even) td { background: rgba(0,0,0,.018); }
+table.data tbody tr:hover td { background: var(--c-accent-soft); }
+table.data td { color: var(--c-text); }
+table.data .mono { font-family: var(--font-mono); font-size: 12px; color: var(--c-text-2); }
 
 .kv-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--s-4);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
 }
 .kv {
-  background: var(--c-surface-sunken);
-  border-radius: var(--r-md); padding: var(--s-4);
+  background: var(--c-surface); border: 1px solid var(--c-line);
+  border-radius: var(--r-lg); padding: 16px 18px;
 }
-.kv .k { font-size: 11.5px; color: var(--c-text-mute); margin-bottom: 4px;
-  text-transform: uppercase; letter-spacing: .04em; }
-.kv .v { font-size: 22px; font-weight: 600; color: var(--c-text); letter-spacing: -.01em; }
+.kv .k { font-size: 11px; color: var(--c-text-mute); margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: .05em; font-weight: 500; }
+.kv .v { font-size: 26px; font-weight: 700; color: var(--c-text); letter-spacing: -.02em; }
 
 .kbd {
   display: inline-block; padding: 1px 6px;

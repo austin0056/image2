@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260531b" />
+<link rel="stylesheet" href="/static/app.css?v=20260531e" />
 <style>
   /* admin 页紫色品牌色，覆盖默认橙 */
   body { overflow: auto; }
@@ -60,7 +60,7 @@
   <main class="admin-main">
     <!-- Stats -->
     <div class="admin-card">
-      <h3>概览</h3>
+      <div class="card-head"><h3>概览</h3></div>
       <div class="kv-grid">
         <div class="kv">
           <div class="k">总用户数</div>
@@ -91,7 +91,7 @@
 
     <!-- Image Provider Settings -->
     <div class="admin-card">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:var(--s-4);flex-wrap:wrap;">
+      <div class="card-head">
         <div>
           <h3 style="margin:0 0 4px;">图片 AI 提供商</h3>
           <div class="dim" style="font-size:12px;">配置图片生成接口，保存后立即生效，无需重启服务。</div>
@@ -125,7 +125,7 @@
 
     <!-- Users -->
     <div class="admin-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-4);">
+      <div class="card-head">
         <h3 style="margin:0;">用户管理</h3>
         <div style="display:flex;gap:8px;">
           <input id="new-name" type="text" placeholder="新用户名" style="width:200px;" />
@@ -144,7 +144,7 @@
 
     <!-- Generations -->
     <div class="admin-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-4);flex-wrap:wrap;gap:10px;">
+      <div class="card-head">
         <h3 style="margin:0;">生成记录</h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <select id="filter-kind" style="width:120px;">
@@ -175,7 +175,7 @@
 
     <!-- Payments -->
     <div class="admin-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-4);flex-wrap:wrap;gap:10px;">
+      <div class="card-head">
         <h3 style="margin:0;">充值订单</h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <select id="pay-filter-status" style="width:120px;">
