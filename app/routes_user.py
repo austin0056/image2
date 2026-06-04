@@ -155,31 +155,45 @@ async def api_generate(
     if gen_id is None:
         raise HTTPException(402, "余额不足")
 
+    # 异步化：复杂/大图上游可能 100-200s，超过 Cloudflare 100s 会 524。改为后台任务 +
+    # 前端轮询 /api/generation/{id}。参考图已在上面同步处理完，这里只把慢的上游调用放后台。
+    task = asyncio.create_task(
+        _run_image_job(gen_id, user["id"], cost_cents, prompt, size, quality, ref_pngs)
+    )
+    _image_jobs.add(task)
+    task.add_done_callback(_image_jobs.discard)
+
+    return {
+        "generation_id": gen_id,
+        "status": "pending",
+        "balance_cents": balance_after,
+    }
+
+
+# 持有后台任务引用，避免被 GC 回收
+_image_jobs: set[asyncio.Task] = set()
+
+
+async def _run_image_job(
+    gen_id: int, user_id: int, cost_cents: int,
+    prompt: str, size: str, quality: str, ref_pngs: list[bytes],
+) -> None:
+    """后台执行生图。成功写 result_key，失败退款。绝不向外抛异常。"""
     try:
-        if has_ref:
+        if ref_pngs:
             png = await upstream.edit_image(prompt, size, ref_pngs, quality=quality)
         else:
             png = await upstream.generate_image(prompt, size, quality=quality)
         result_key = storage.make_key("results")
         await storage.upload_bytes(result_key, png)
         await db.mark_success(gen_id, result_key)
-        return {
-            "generation_id": gen_id,
-            "result_url": f"/files/result/{gen_id}",
-            "balance_cents": balance_after,
-        }
+        log.info("image job 成功 user=%s gen=%s", user_id, gen_id)
     except upstream.UpstreamError as e:
-        log.warning("generate 上游失败 user=%s gen=%s: %s", user["id"], gen_id, e)
-        new_balance = await db.mark_failed_and_refund(
-            gen_id, user["id"], cost_cents, str(e)
-        )
-        raise HTTPException(502, f"生成失败: {e}. 已退款。当前余额 {new_balance} 分")
+        log.warning("image job 上游失败 user=%s gen=%s: %s", user_id, gen_id, e)
+        await db.mark_failed_and_refund(gen_id, user_id, cost_cents, str(e))
     except Exception as e:
-        log.exception("generate 内部异常 user=%s gen=%s", user["id"], gen_id)
-        new_balance = await db.mark_failed_and_refund(
-            gen_id, user["id"], cost_cents, str(e)
-        )
-        raise HTTPException(500, f"内部错误: {e}. 已退款。当前余额 {new_balance} 分")
+        log.exception("image job 内部异常 user=%s gen=%s", user_id, gen_id)
+        await db.mark_failed_and_refund(gen_id, user_id, cost_cents, str(e))
 
 
 @router.get("/api/history")

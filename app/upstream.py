@@ -15,7 +15,9 @@ class UpstreamError(RuntimeError):
     pass
 
 
-_TIMEOUT = httpx.Timeout(connect=15.0, read=120.0, write=60.0, pool=15.0)
+# 复杂/大尺寸生图在上游可能要 100-200s，这里给足读超时（生图已改为后台异步任务，
+# 不受 Cloudflare 100s 限制，所以可以放长）。
+_TIMEOUT = httpx.Timeout(connect=15.0, read=300.0, write=60.0, pool=15.0)
 
 
 async def _provider_settings() -> dict[str, Any]:

@@ -12,8 +12,8 @@ from . import db
 
 log = logging.getLogger("image2.tasks")
 
-# 生成任务超时 5 分钟（含上游耗时 + 缓冲）
-GEN_TIMEOUT_SECONDS = 5 * 60
+# 生成任务超时 7 分钟（图片已异步化，复杂图上游可能要 2-3 分钟，留足缓冲避免误退款）
+GEN_TIMEOUT_SECONDS = 7 * 60
 # CAD 异步任务较慢（LLM 写码 + build123d 执行 + 可能重修，内部预算 ~300s），
 # 给更长的窗口，避免清扫任务在后台任务仍在跑时误退款。
 CAD_GEN_TIMEOUT_SECONDS = 10 * 60
