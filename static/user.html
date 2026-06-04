@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260604b" />
+<link rel="stylesheet" href="/static/app.css?v=20260605a" />
 <!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
 <script type="module">
   const CDNS = [
@@ -427,22 +427,23 @@
   </div>
 
   <!-- 历史抽屉 -->
-  <aside class="history-drawer" id="history-drawer">
+  <div class="drawer-mask" id="history-mask"></div>
+  <aside class="drawer" id="history-drawer">
     <div class="hd-head">
       <div class="hd-title">活动记录</div>
-      <button class="btn ghost small" id="close-history">×</button>
+      <button class="icon-btn" id="close-history" type="button" title="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
     </div>
     <div class="hd-tabs">
       <button class="hd-tab active" data-htab="gen">生成历史</button>
       <button class="hd-tab" data-htab="pay">充值记录</button>
     </div>
-    <div class="hd-list" id="history" data-pane="gen">
-      <div class="dim" id="history-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">还没有生成记录</div>
-    </div>
-    <div class="hd-list hidden" id="payments" data-pane="pay">
+    <div class="hd-body" id="history" data-pane="gen"></div>
+    <div class="hd-body hidden" id="payments" data-pane="pay">
       <div class="ledger-summary" id="ledger-summary"></div>
       <div id="ledger-list"></div>
-      <div class="dim" id="payments-empty" style="text-align:center;padding:40px 20px;font-size:12.5px;">加载中…</div>
+      <div class="dim hidden" id="payments-empty"></div>
     </div>
   </aside>
 </div>
@@ -626,12 +627,10 @@ async function refreshHistory() {
     box.innerHTML = "";
     if (!data.items.length) {
       box.innerHTML = `
-        <div class="pay-empty">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-          </svg>
-          <div class="pay-empty-title">还没有生成记录</div>
-          <div class="pay-empty-sub">在左侧输入提示词开始创作</div>
+        <div class="empty-mini">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+          <div class="t">还没有生成记录</div>
+          <div class="s">在左侧输入提示词开始创作</div>
         </div>`;
       return;
     }
@@ -649,13 +648,13 @@ async function refreshHistory() {
       media.className = "g-media";
 
       if (it.kind === "cad" && it.result_url) {
-        media.classList.add("kind-cad");
+        media.classList.add("cad");
         media.innerHTML = CUBE_SVG;
         const files = { step: `/cad/${it.id}.step`, stl: `/cad/${it.id}.stl`, glb: `/cad/${it.id}.glb` };
         card.onclick = () => {
           document.querySelector('.tab-btn[data-tab="cad"]')?.click();
           showCadResult(files, null);
-          $("history-drawer").classList.remove("open");
+          closeDrawer();
         };
       } else if (it.result_url) {
         const img = document.createElement("img");
@@ -721,12 +720,10 @@ async function refreshLedger() {
     const data = await api("/api/ledger?type=recharge");
     if (!data.items.length) {
       list.innerHTML = `
-        <div class="pay-empty">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
-          </svg>
-          <div class="pay-empty-title">还没有充值记录</div>
-          <div class="pay-empty-sub">点击右上角「+ 充值」给账户充值</div>
+        <div class="empty-mini">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          <div class="t">还没有充值记录</div>
+          <div class="s">点击右上角「+ 充值」给账户充值</div>
         </div>`;
       if (empty) empty.style.display = "none";
       return;
@@ -742,14 +739,8 @@ async function refreshLedger() {
     for (const it of data.items) if (it.status === "paid") paidCount++;
     if (summary) {
       summary.innerHTML = `
-        <div class="led-stat">
-          <span class="led-stat-label">累计成功充值</span>
-          <span class="led-stat-val income">¥${(paid / 100).toFixed(2)}</span>
-        </div>
-        <div class="led-stat">
-          <span class="led-stat-label">成功笔数</span>
-          <span class="led-stat-val">${paidCount}</span>
-        </div>`;
+        <div class="led-stat"><div class="k">累计成功充值</div><div class="v income">¥${(paid / 100).toFixed(2)}</div></div>
+        <div class="led-stat"><div class="k">成功笔数</div><div class="v">${paidCount}</div></div>`;
     }
 
     // 按日分组（按用户本地时区切日，避免 UTC 切日导致的跨日错位）
@@ -779,36 +770,33 @@ async function refreshLedger() {
 }
 
 function renderLedgerItem(it) {
-  // 充值记录专用：状态 paid / pending / expired
+  // 充值记录：状态 paid / pending / expired，结构对齐设计稿（icon · mid · right）
   const div = document.createElement("div");
-  const sign = it.status === "paid" ? "income" : "neutral";
-  div.className = `led-item is-recharge status-${it.status} ${sign}`;
+  const statusClass = it.status === "paid" ? "income" : (it.status === "pending" ? "pending" : "expired");
+  div.className = `led-item ${statusClass}`;
   const amt = (Math.abs(it.amount_cents) / 100).toFixed(2);
   const amtStr = it.status === "paid" ? `+¥${amt}` : `¥${amt}`;
+  const amtClass = it.status === "paid" ? "income" : "";
   const t = formatPayTime(it.occur_at);
   const tFull = (it.occur_at || "").replace("T", " ").slice(0, 19);
   const payLabel = it.pay_type ? (it.pay_type === "alipay" ? "支付宝" : it.pay_type) : "支付宝";
 
-  let action = "";
-  if (it.status === "pending") {
-    action = `<button class="led-resume" data-no="${it.ref_no}">查询状态</button>`;
-  } else if (it.status === "expired") {
-    action = `<span class="led-tag">已过期</span>`;
-  } else if (it.status === "paid") {
-    action = `<span class="led-tag paid-tag">已到账</span>`;
+  let right = `<span class="led-amt ${amtClass}">${amtStr}</span>`;
+  if (it.status === "paid") {
+    right += `<span class="led-tag paid">已到账</span>`;
+  } else if (it.status === "pending") {
+    right += `<span class="led-tag pending">待支付</span><button class="led-resume" data-no="${it.ref_no}">查询状态</button>`;
+  } else {
+    right += `<span class="led-tag">已过期</span>`;
   }
 
   div.innerHTML = `
     <div class="led-icon">${ledgerIcon()}</div>
-    <div class="led-body">
-      <div class="led-title-row">
-        <span class="led-title">余额充值</span>
-        ${action}
-      </div>
+    <div class="led-mid">
+      <div class="led-title">余额充值</div>
       <div class="led-sub" title="${tFull}">${payLabel} · ${t}</div>
     </div>
-    <div class="led-amt">${amtStr}</div>
-  `;
+    <div class="led-right">${right}</div>`;
   const btn = div.querySelector(".led-resume");
   if (btn) btn.onclick = () => startWatching(btn.dataset.no);
   return div;
@@ -1559,16 +1547,21 @@ document.querySelectorAll(".empty-state .ex").forEach((b) => {
 });
 
 // 历史抽屉
+function openDrawer() {
+  $("history-drawer").classList.add("open");
+  $("history-mask").classList.add("open");
+  refreshHistory();
+  refreshPayments();
+}
+function closeDrawer() {
+  $("history-drawer").classList.remove("open");
+  $("history-mask").classList.remove("open");
+}
 $("open-history").onclick = () => {
-  const drawer = $("history-drawer");
-  drawer.classList.toggle("open");
-  if (drawer.classList.contains("open")) {
-    // 打开时主动刷两边
-    refreshHistory();
-    refreshPayments();
-  }
+  $("history-drawer").classList.contains("open") ? closeDrawer() : openDrawer();
 };
-$("close-history").onclick = () => $("history-drawer").classList.remove("open");
+$("close-history").onclick = closeDrawer;
+$("history-mask").onclick = closeDrawer;
 document.querySelectorAll(".hd-tab").forEach((t) => {
   t.onclick = () => {
     document.querySelectorAll(".hd-tab").forEach((x) => x.classList.remove("active"));
