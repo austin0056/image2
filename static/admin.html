@@ -151,6 +151,7 @@
             <option value="">全部类型</option>
             <option value="image">图片</option>
             <option value="icon">图标</option>
+            <option value="cad">CAD</option>
           </select>
           <select id="filter-status" style="width:120px;">
             <option value="">全部状态</option>
@@ -165,7 +166,7 @@
       <div style="overflow-x:auto;border:1px solid var(--c-line);border-radius:var(--r-md);">
         <table class="data">
           <thead>
-            <tr><th>ID</th><th>时间</th><th>用户</th><th>类型</th><th>Prompt</th><th>规格</th><th>参考</th><th>状态</th><th>扣费</th><th>结果</th><th>操作</th></tr>
+            <tr><th>ID</th><th>时间</th><th>用户</th><th>类型</th><th>Prompt</th><th>规格</th><th>参考</th><th>状态</th><th>错误原因</th><th>扣费</th><th>结果</th><th>操作</th></tr>
           </thead>
           <tbody id="gen-tbody"></tbody>
         </table>
@@ -413,7 +414,7 @@ async function refreshGenerations() {
   const tbody = $("gen-tbody"); tbody.innerHTML = "";
   const filtered = kind ? data.items.filter((g) => (g.kind || "image") === kind) : data.items;
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--c-text-mute);padding:32px;">没有调用记录</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--c-text-mute);padding:32px;">没有调用记录</td></tr>';
     return;
   }
   for (const g of filtered) {
@@ -425,7 +426,12 @@ async function refreshGenerations() {
       : `<span style="padding:2px 8px;border-radius:4px;background:var(--c-warning-soft);color:var(--c-warning);font-size:11px;font-weight:500;">${escapeHtml(g.status)}</span>`;
     const kindBadge = g.kind === "icon"
       ? '<span style="padding:2px 8px;border-radius:4px;background:rgba(140,59,255,.10);color:#8C3BFF;font-size:11px;font-weight:500;">SVG</span>'
+      : g.kind === "cad"
+      ? '<span style="padding:2px 8px;border-radius:4px;background:rgba(106,166,255,.14);color:#3B82F6;font-size:11px;font-weight:500;">CAD</span>'
       : '<span style="padding:2px 8px;border-radius:4px;background:rgba(255,92,44,.10);color:var(--c-accent);font-size:11px;font-weight:500;">IMG</span>';
+    const errCell = g.error
+      ? `<span class="gen-err" title="${escapeHtml(g.error)}" style="display:inline-block;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--c-danger);cursor:pointer;font-size:12px;line-height:1.4;">${escapeHtml(g.error)}</span>`
+      : '<span style="color:var(--c-text-mute);">—</span>';
     tr.innerHTML = `
       <td class="mono">${g.id}</td>
       <td class="muted">${fmtTime(g.created_at)}</td>
@@ -435,9 +441,18 @@ async function refreshGenerations() {
       <td class="mono">${escapeHtml(g.size)}</td>
       <td>${g.has_ref ? (g.ref_url ? `<a href="${g.ref_url}" target="_blank">看</a>` : "有") : ""}</td>
       <td>${statusBadge}</td>
+      <td>${errCell}</td>
       <td>${fmtMoney(g.cost_cents)}</td>
       <td>${g.result_url ? `<a href="${g.result_url}" target="_blank">查看</a>` : ""}</td>
       <td><button class="btn small danger del-gen">删除</button></td>`;
+    const errEl = tr.querySelector(".gen-err");
+    if (errEl) errEl.onclick = () => {
+      // 点击展开/收起完整错误
+      const expanded = errEl.dataset.exp === "1";
+      errEl.style.whiteSpace = expanded ? "nowrap" : "normal";
+      errEl.style.maxWidth = expanded ? "300px" : "420px";
+      errEl.dataset.exp = expanded ? "0" : "1";
+    };
     tr.querySelector(".del-gen").onclick = async () => {
       if (!confirm(`删除记录 #${g.id}？图片也会一起删。`)) return;
       try {
