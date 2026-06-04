@@ -41,7 +41,8 @@ class ImageProviderSettingsBody(BaseModel):
 
 @router.post("/api/admin/login")
 async def admin_login(body: LoginBody, response: Response) -> dict[str, Any]:
-    if body.password != settings.admin_password:
+    # 去掉首尾空白：避免在 Zeabur 粘贴 ADMIN_PASSWORD 时带了行尾换行/空格导致永远对不上。
+    if body.password.strip() != settings.admin_password.strip():
         raise HTTPException(401, "密码错误")
     token = make_admin_token()
     response.set_cookie(
