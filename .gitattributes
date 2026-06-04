@@ -1,0 +1,2 @@
+# 第三方自托管资源：保持原始字节，禁止 EOL 转换
+static/vendor/** -text

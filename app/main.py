@@ -107,7 +107,10 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path.startswith("/static/") or path in ("/", "/admin"):
+        if path.startswith("/static/vendor/"):
+            # 第三方库（如 model-viewer）按版本固定、不可变，长缓存避免每次重拉 1MB
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path.startswith("/static/") or path in ("/", "/admin"):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"

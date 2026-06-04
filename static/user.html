@@ -7,20 +7,23 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605b" />
-<!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先 npmmirror（国内可访问），失败回退 jsdelivr/unpkg。 -->
+<link rel="stylesheet" href="/static/app.css?v=20260605c" />
+<!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先自托管（国内必达），失败回退 jsdelivr 国内边缘/unpkg。 -->
 <script type="module">
   const CDNS = [
-    "https://registry.npmmirror.com/@google/model-viewer/4.2.0/files/dist/model-viewer.min.js",
+    "/static/vendor/model-viewer.min.js?v=4.2.0",
+    "https://fastly.jsdelivr.net/npm/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
+    "https://gcore.jsdelivr.net/npm/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
     "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
     "https://unpkg.com/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
   ];
-  (async () => {
+  window.__mvReady = (async () => {
     for (const url of CDNS) {
-      try { await import(url); return; }
-      catch (e) { console.warn("model-viewer 加载失败，尝试下一个 CDN:", url, e); }
+      try { await import(url); return true; }
+      catch (e) { console.warn("model-viewer 加载失败，尝试下一个源:", url, e); }
     }
-    console.error("model-viewer 所有 CDN 均加载失败，3D 预览不可用（STEP/STL 下载不受影响）");
+    console.error("model-viewer 所有源均加载失败，3D 预览不可用（STEP/STL/GLB 下载不受影响）");
+    return false;
   })();
 </script>
 </head>
@@ -1010,9 +1013,10 @@ function showCadResult(files, meta) {
   const wrap = $("result-wrap");
   wrap.className = "";
   wrap.innerHTML = `
-    <model-viewer src="${files.glb}?access_key=${ak}" camera-controls auto-rotate
+    <model-viewer id="cad-mv" src="${files.glb}?access_key=${ak}" camera-controls auto-rotate
       shadow-intensity="1" exposure="1.1" interaction-prompt="none"
-      style="width:100%;height:100%;background:transparent;"></model-viewer>`;
+      style="width:100%;height:100%;background:transparent;"></model-viewer>
+    <div id="cad-fallback" class="cad-fallback hidden"></div>`;
   // 隐藏 SVG/PNG 相关工具按钮
   ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.add("hidden"));
   $("size-toolbar").style.display = "none";
@@ -1021,6 +1025,7 @@ function showCadResult(files, meta) {
   const dl = $("download-link");
   dl.href = files.step + "?access_key=" + ak;
   dl.download = "model.step";
+  dl.removeAttribute("target");
   dl.textContent = "↓ STEP";
   dl.classList.remove("hidden");
   // 其余格式放到底部 actions
@@ -1030,6 +1035,33 @@ function showCadResult(files, meta) {
     <a class="btn ghost small" href="${files.glb}?access_key=${ak}" download="model.glb">↓ GLB</a>`;
   $("canvas-foot").classList.remove("hidden");
   applyResultBg();
+
+  // 3D 预览健壮性：组件库没加载成功 / GLB 加载失败 / 超时 → 显示可读兜底 + 下载，避免空白
+  const mv = $("cad-mv");
+  let settled = false;
+  const showFallback = (msg) => {
+    if (settled) return; settled = true;
+    const fb = $("cad-fallback"); if (!fb) return;
+    if (mv) mv.style.display = "none";
+    fb.className = "cad-fallback";
+    fb.innerHTML = `
+      <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>
+      <div class="cad-fb-title">${escapeHtml(msg)}</div>
+      <div class="cad-fb-sub">模型已生成，可下载用本地软件查看：</div>
+      <div class="cad-fb-actions">
+        <a class="btn secondary small" href="${files.step}?access_key=${ak}" download="model.step">↓ STEP</a>
+        <a class="btn ghost small" href="${files.stl}?access_key=${ak}" download="model.stl">↓ STL</a>
+        <a class="btn ghost small" href="${files.glb}?access_key=${ak}" download="model.glb">↓ GLB</a>
+      </div>`;
+  };
+  if (mv) {
+    mv.addEventListener("load", () => { settled = true; }, { once: true });
+    mv.addEventListener("error", () => showFallback("3D 模型加载失败"), { once: true });
+  }
+  Promise.resolve(window.__mvReady).then((loaded) => {
+    if (loaded === false || !customElements.get("model-viewer")) showFallback("3D 预览组件加载失败（网络/CDN）");
+  });
+  setTimeout(() => { if (!settled && !(mv && mv.loaded)) showFallback("3D 预览加载超时"); }, 15000);
 }
 function showHtmlResult(url, id) {
   // 公式/图表：结果是自包含 HTML，沙箱 iframe 里由浏览器渲染（MathJax 公式 + Mermaid 流程图）
