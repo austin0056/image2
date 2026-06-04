@@ -28,6 +28,18 @@ class ChartRunError(RuntimeError):
 
 _MAX_PNG_BYTES = 20 * 1024 * 1024
 
+# matplotlib 字体缓存放一个持久目录（跨次复用，避免每次重建缓存拖慢 ~几秒）。
+# 注意：这是只读缓存性质的目录，不随每次执行清理；与每次执行的临时工作目录分开。
+_MPL_CACHE = os.path.join(tempfile.gettempdir(), "image2_mplcache")
+
+
+def _mpl_cache_dir() -> str:
+    try:
+        os.makedirs(_MPL_CACHE, exist_ok=True)
+    except OSError:
+        return tempfile.gettempdir()
+    return _MPL_CACHE
+
 _HARNESS = '''\
 import sys
 import matplotlib
@@ -66,7 +78,8 @@ def _run_sync(code: str) -> bytes:
             f.write(_HARNESS.format(code=code))
 
         env = _safe_env()
-        env["MPLCONFIGDIR"] = tmp  # matplotlib 字体缓存/配置目录（环境被精简，需指定可写目录）
+        # 字体缓存用持久目录（复用，提速）；工作目录 tmp 仍每次清理
+        env["MPLCONFIGDIR"] = _mpl_cache_dir()
         env["MPLBACKEND"] = "Agg"
         popen_kw: dict = dict(cwd=tmp, env=env, capture_output=True, text=True, timeout=timeout)
         try:
