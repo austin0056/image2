@@ -1085,9 +1085,36 @@ input[type="range"] {
    Admin
    ============================================================ */
 .admin-shell { display: grid; grid-template-rows: var(--topbar-h) 1fr; height: 100vh; }
+/* 左侧导航 + 右侧内容 */
+.admin-body {
+  display: grid; grid-template-columns: 212px 1fr;
+  align-items: start; min-height: 0;
+}
+.admin-nav {
+  position: sticky; top: var(--topbar-h);
+  align-self: start; height: calc(100vh - var(--topbar-h));
+  overflow-y: auto;
+  background: var(--c-surface); border-right: 1px solid var(--c-line);
+  padding: 14px 10px; display: flex; flex-direction: column; gap: 3px;
+}
+.admin-nav-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px; border: 0; background: transparent;
+  border-radius: var(--r-md); cursor: pointer; text-align: left;
+  font-size: 13.5px; font-weight: 500; color: var(--c-text-2);
+  transition: all var(--t-fast);
+}
+.admin-nav-item svg { width: 17px; height: 17px; flex-shrink: 0; opacity: .8; }
+.admin-nav-item:hover { background: var(--c-surface-sunken); color: var(--c-text); }
+.admin-nav-item.active {
+  background: var(--c-accent-soft); color: var(--c-accent); font-weight: 600;
+}
+.admin-nav-item.active svg { opacity: 1; }
+.admin-section.hidden { display: none; }
+
 .admin-main {
   overflow: auto; padding: 28px 32px;
-  background: var(--c-bg);
+  background: var(--c-bg); min-width: 0;
 }
 /* 宽屏下内容居中限宽，避免卡片/表格被拉得过宽 */
 .admin-main > * { max-width: 1280px; margin-left: auto; margin-right: auto; }
@@ -1303,6 +1330,15 @@ table.data .mono { font-family: var(--font-mono); font-size: 12px; color: var(--
   .admin-main { padding: var(--s-4); }
   .admin-card { padding: var(--s-4); }
   table.data th { position: sticky; top: 0; z-index: 1; }
+  /* 窄屏：左侧导航改为顶部横向条 */
+  .admin-body { grid-template-columns: 1fr; }
+  .admin-nav {
+    position: sticky; top: var(--topbar-h); height: auto;
+    flex-direction: row; overflow-x: auto;
+    border-right: 0; border-bottom: 1px solid var(--c-line);
+    padding: 8px 10px; gap: 6px; z-index: 8;
+  }
+  .admin-nav-item { width: auto; white-space: nowrap; }
 }
 
 @media (max-width: 640px) {
