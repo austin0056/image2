@@ -212,6 +212,101 @@ async def update_image_provider_settings(
     return await get_image_provider_settings(reveal_key=False)
 
 
+# ----- 图片生成 · 额外来源池（负载均衡 / 抗限流，提高并发） -----
+# 存成单条 JSON：image_provider.extra_sources = [{id, base, model, key, enabled}, ...]
+# 生效来源池 = 主来源 + 启用的额外来源；upstream 在池上轮询 + 限流故障转移。
+
+_EXTRA_SOURCES_KEY = "image_provider.extra_sources"
+
+
+async def _read_extra_sources_raw() -> list[dict[str, Any]]:
+    async with pool().acquire() as con:
+        row = await con.fetchrow("SELECT value FROM app_settings WHERE key=$1", _EXTRA_SOURCES_KEY)
+    raw = row["value"] if row else ""
+    if not raw:
+        return []
+    try:
+        arr = json.loads(raw)
+        return [s for s in arr if isinstance(s, dict)] if isinstance(arr, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+async def _write_extra_sources_raw(arr: list[dict[str, Any]]) -> None:
+    async with pool().acquire() as con:
+        await con.execute(
+            """
+            INSERT INTO app_settings(key, value, updated_at) VALUES($1, $2, now())
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+            """,
+            _EXTRA_SOURCES_KEY, json.dumps(arr, ensure_ascii=False),
+        )
+
+
+def _shape_source(s: dict[str, Any], *, reveal_key: bool) -> dict[str, Any]:
+    k = (s.get("key") or "")
+    return {
+        "id": s.get("id", ""),
+        "base": (s.get("base") or "").rstrip("/"),
+        "model": s.get("model") or "",
+        "enabled": bool(s.get("enabled", True)),
+        "key": k if reveal_key else "",
+        "key_set": bool(k),
+        "key_preview": _mask_secret(k),
+    }
+
+
+async def get_image_extra_sources(*, reveal_key: bool = False) -> list[dict[str, Any]]:
+    return [_shape_source(s, reveal_key=reveal_key) for s in await _read_extra_sources_raw()]
+
+
+async def add_image_extra_source(*, base: str, model: str, key: str) -> list[dict[str, Any]]:
+    arr = await _read_extra_sources_raw()
+    arr.append({
+        "id": secrets.token_hex(6),
+        "base": base.rstrip("/"), "model": model, "key": key, "enabled": True,
+    })
+    await _write_extra_sources_raw(arr)
+    return await get_image_extra_sources(reveal_key=False)
+
+
+async def update_image_extra_source(sid: str, *, enabled: bool | None = None,
+                                    base: str | None = None, model: str | None = None,
+                                    key: str | None = None) -> list[dict[str, Any]]:
+    arr = await _read_extra_sources_raw()
+    for s in arr:
+        if s.get("id") == sid:
+            if enabled is not None:
+                s["enabled"] = bool(enabled)
+            if base is not None:
+                s["base"] = base.rstrip("/")
+            if model is not None:
+                s["model"] = model
+            if key:  # 空 key = 保留原有
+                s["key"] = key
+            break
+    await _write_extra_sources_raw(arr)
+    return await get_image_extra_sources(reveal_key=False)
+
+
+async def delete_image_extra_source(sid: str) -> list[dict[str, Any]]:
+    arr = [s for s in await _read_extra_sources_raw() if s.get("id") != sid]
+    await _write_extra_sources_raw(arr)
+    return await get_image_extra_sources(reveal_key=False)
+
+
+async def get_image_pool() -> list[dict[str, str]]:
+    """可用来源池（主来源 + 启用且配置完整的额外来源），含真实 key，供 upstream 使用。"""
+    out: list[dict[str, str]] = []
+    primary = await get_image_provider_settings(reveal_key=True)
+    if primary["upstream_base"] and primary["upstream_key"] and primary["upstream_model"]:
+        out.append({"base": primary["upstream_base"], "key": primary["upstream_key"], "model": primary["upstream_model"]})
+    for s in await get_image_extra_sources(reveal_key=True):
+        if s["enabled"] and s["base"] and s["key"] and s["model"]:
+            out.append({"base": s["base"], "key": s["key"], "model": s["model"]})
+    return out
+
+
 # ----- 通用上游提供商设置（claude / recraft / chart） -----
 
 def _PROVIDER_DEFAULTS() -> dict[str, dict[str, str]]:

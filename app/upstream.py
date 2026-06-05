@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import itertools
 import logging
 from typing import Any
 
@@ -35,17 +36,6 @@ def _verify_size(data: bytes, expected: str) -> None:
 # 复杂/大尺寸生图在上游可能要 100-200s，这里给足读超时（生图已改为后台异步任务，
 # 不受 Cloudflare 100s 限制，所以可以放长）。
 _TIMEOUT = httpx.Timeout(connect=15.0, read=300.0, write=60.0, pool=15.0)
-
-
-async def _provider_settings() -> dict[str, Any]:
-    cfg = await db.get_image_provider_settings(reveal_key=True)
-    if not cfg["upstream_base"]:
-        raise UpstreamError("图片生成 API Base URL 未配置，请在管理后台设置")
-    if not cfg["upstream_key"]:
-        raise UpstreamError("图片生成 API Key 未配置，请在管理后台设置")
-    if not cfg["upstream_model"]:
-        raise UpstreamError("图片生成模型未配置，请在管理后台设置")
-    return cfg
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
@@ -108,57 +98,67 @@ def _is_transient(status: int, err: str) -> bool:
     return status in _RETRY_STATUS or _is_rate_limited(status, err)
 
 
-async def _post_image_with_retry(do_post, *, label: str, client: httpx.AsyncClient, expected_size: str) -> bytes:
-    """统一的图片请求执行：限流/网关瞬时错误退避重试；非瞬时 4xx 去掉 response_format 降级一次。
+_rr_counter = itertools.count()  # 轮询起点（asyncio 单线程，简单计数即可）
 
-    do_post(with_rf: bool) -> httpx.Response：with_rf=False 时不带 response_format（兼容个别中转）。
+
+async def _post_image(make_request, *, label: str, client: httpx.AsyncClient,
+                      expected_size: str, sources: list[dict[str, str]]) -> bytes:
+    """在来源池上轮询 + 限流故障转移地发图片请求。
+
+    make_request(src, with_rf) -> httpx.Response。每轮按轮询起点遍历所有来源，命中即返回；
+    某来源限流/瞬时错误/连不上就立刻切下一个来源；一整轮所有来源都繁忙才退避后再来一轮。
+    非瞬时 4xx（内容策略/参数错误，各来源结果一致）直接报错，不浪费故障转移。
     """
+    n = len(sources)
+    start = next(_rr_counter)
     last_status, last_err = 0, "未知错误"
-    for attempt in range(_MAX_IMG_RETRIES + 1):
-        resp = await do_post(True)
-        if resp.status_code < 400:
-            return await _decode_response(client, resp.json(), expected_size)
-        last_status, last_err = resp.status_code, _err_text(resp)
-
-        if _is_transient(last_status, last_err) and attempt < _MAX_IMG_RETRIES:
-            delay = _RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)]
-            log.warning("%s 瞬时错误 %s（第 %d 次），%.1fs 后重试：%s", label, last_status, attempt + 1, delay, last_err[:160])
+    for round_i in range(_MAX_IMG_RETRIES + 1):
+        for i in range(n):
+            src = sources[(start + i) % n]
+            try:
+                resp = await make_request(src, True)
+            except httpx.HTTPError as e:
+                last_status, last_err = 0, f"连接失败: {e}"
+                continue  # 这个来源连不上 → 下一个
+            if resp.status_code < 400:
+                return await _decode_response(client, resp.json(), expected_size)
+            last_status, last_err = resp.status_code, _err_text(resp)
+            if _is_transient(last_status, last_err):
+                log.warning("%s 来源繁忙 %s，切下一个来源：%s", label, last_status, last_err[:140])
+                continue  # 限流/网关错误 → 立刻切下一个来源
+            # 非瞬时 4xx：去掉 response_format 降级再试一次（个别中转不支持 b64_json）
+            try:
+                resp2 = await make_request(src, False)
+            except httpx.HTTPError as e:
+                last_status, last_err = 0, f"连接失败: {e}"
+                continue
+            if resp2.status_code < 400:
+                return await _decode_response(client, resp2.json(), expected_size)
+            s2, e2 = resp2.status_code, _err_text(resp2)
+            if not _is_transient(s2, e2):
+                raise UpstreamError(f"{label} {s2}: {e2}")  # 内容策略等，各来源一致 → 直接报错
+            last_status, last_err = s2, e2
+        # 一整轮所有来源都繁忙 → 退避后再来一轮
+        if round_i < _MAX_IMG_RETRIES:
+            delay = _RETRY_BACKOFF[min(round_i, len(_RETRY_BACKOFF) - 1)]
+            log.warning("%s 全部 %d 个来源本轮都繁忙，%.1fs 后重试", label, n, delay)
             await asyncio.sleep(delay)
-            continue
-
-        # 非瞬时错误：可能是中转不支持 response_format=b64_json，去掉再试一次
-        resp2 = await do_post(False)
-        if resp2.status_code < 400:
-            return await _decode_response(client, resp2.json(), expected_size)
-        last_status, last_err = resp2.status_code, _err_text(resp2)
-        # 降级后若仍是瞬时限流且还有次数，退避后整轮再来
-        if _is_transient(last_status, last_err) and attempt < _MAX_IMG_RETRIES:
-            await asyncio.sleep(_RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)])
-            continue
-        break
-
     if _is_rate_limited(last_status, last_err):
-        raise UpstreamError(f"{label} 上游限流，多次重试仍繁忙，请稍后再试（{last_status}）")
+        raise UpstreamError(f"{label} 所有来源都在限流，请稍后再试（共 {n} 个来源）")
     raise UpstreamError(f"{label} {last_status}: {last_err}")
 
 
 async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes:
-    cfg = await _provider_settings()
-    url = f"{cfg['upstream_base']}/images/generations"
-    headers = _auth_headers(cfg["upstream_key"])
-    body = {
-        "model": cfg["upstream_model"],
-        "prompt": prompt,
-        "size": size,
-        "quality": quality,
-        "n": 1,
-        "response_format": "b64_json",
-    }
+    sources = await db.get_image_pool()
+    if not sources:
+        raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        async def do_post(with_rf: bool):
-            b = body if with_rf else {k: v for k, v in body.items() if k != "response_format"}
-            return await client.post(url, json=b, headers=headers)
-        return await _post_image_with_retry(do_post, label="generations", client=client, expected_size=size)
+        async def make_request(src: dict[str, str], with_rf: bool):
+            body = {"model": src["model"], "prompt": prompt, "size": size, "quality": quality, "n": 1}
+            if with_rf:
+                body["response_format"] = "b64_json"
+            return await client.post(f"{src['base']}/images/generations", json=body, headers=_auth_headers(src["key"]))
+        return await _post_image(make_request, label="generations", client=client, expected_size=size, sources=sources)
 
 
 def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes, str]]]:
@@ -173,19 +173,14 @@ def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes
 async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str = "auto") -> bytes:
     if not ref_pngs:
         raise UpstreamError("缺少参考图")
-    cfg = await _provider_settings()
-    url = f"{cfg['upstream_base']}/images/edits"
-    headers = _auth_headers(cfg["upstream_key"])
-    data = {
-        "model": cfg["upstream_model"],
-        "prompt": prompt,
-        "size": size,
-        "quality": quality,
-        "n": "1",
-        "response_format": "b64_json",
-    }
+    sources = await db.get_image_pool()
+    if not sources:
+        raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        async def do_post(with_rf: bool):
-            d = data if with_rf else {k: v for k, v in data.items() if k != "response_format"}
-            return await client.post(url, data=d, files=_build_edit_files(ref_pngs), headers=headers)
-        return await _post_image_with_retry(do_post, label="edits", client=client, expected_size=size)
+        async def make_request(src: dict[str, str], with_rf: bool):
+            data = {"model": src["model"], "prompt": prompt, "size": size, "quality": quality, "n": "1"}
+            if with_rf:
+                data["response_format"] = "b64_json"
+            return await client.post(f"{src['base']}/images/edits", data=data,
+                                     files=_build_edit_files(ref_pngs), headers=_auth_headers(src["key"]))
+        return await _post_image(make_request, label="edits", client=client, expected_size=size, sources=sources)

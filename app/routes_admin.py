@@ -104,6 +104,56 @@ async def admin_update_image_provider_settings(body: ImageProviderSettingsBody) 
     )
 
 
+# ----- 图片生成 · 额外来源池（负载均衡 / 抗限流） -----
+
+class ImageSourceBody(BaseModel):
+    base: str = Field(..., min_length=1, max_length=500)
+    model: str = Field(..., min_length=1, max_length=200)
+    key: str = Field(..., min_length=1, max_length=5000)
+
+
+class ImageSourcePatch(BaseModel):
+    enabled: bool | None = None
+    base: str | None = Field(default=None, max_length=500)
+    model: str | None = Field(default=None, max_length=200)
+    key: str | None = Field(default=None, max_length=5000)  # 空=保留原 key
+
+
+@router.get("/api/admin/settings/image-sources", dependencies=[Depends(require_admin)])
+async def admin_get_image_sources() -> dict[str, Any]:
+    return {"items": await db.get_image_extra_sources(reveal_key=False)}
+
+
+@router.post("/api/admin/settings/image-sources", dependencies=[Depends(require_admin)])
+async def admin_add_image_source(body: ImageSourceBody) -> dict[str, Any]:
+    base = body.base.strip().rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        raise HTTPException(400, "API Base URL 必须以 http:// 或 https:// 开头")
+    model, key = body.model.strip(), body.key.strip()
+    if not model or not key:
+        raise HTTPException(400, "模型与 API Key 不能为空")
+    return {"items": await db.add_image_extra_source(base=base, model=model, key=key)}
+
+
+@router.patch("/api/admin/settings/image-sources/{sid}", dependencies=[Depends(require_admin)])
+async def admin_update_image_source(sid: str, body: ImageSourcePatch) -> dict[str, Any]:
+    base = body.base.strip().rstrip("/") if body.base is not None else None
+    if base and not base.startswith(("http://", "https://")):
+        raise HTTPException(400, "API Base URL 必须以 http:// 或 https:// 开头")
+    return {"items": await db.update_image_extra_source(
+        sid,
+        enabled=body.enabled,
+        base=base,
+        model=body.model.strip() if body.model is not None else None,
+        key=body.key.strip() if body.key else None,
+    )}
+
+
+@router.delete("/api/admin/settings/image-sources/{sid}", dependencies=[Depends(require_admin)])
+async def admin_delete_image_source(sid: str) -> dict[str, Any]:
+    return {"items": await db.delete_image_extra_source(sid)}
+
+
 @router.get("/api/admin/settings/provider/{name}", dependencies=[Depends(require_admin)])
 async def admin_get_provider(name: str) -> dict[str, Any]:
     if name not in db.PROVIDER_NAMES:
