@@ -38,6 +38,9 @@ _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，
   配色 / 字体 / 留白已有统一主题，你只需给数据与必要的 title / tooltip / 坐标轴 / series。例如：
   <div class="echarts" data-h="340">{"title":{"text":"季度销量"},"tooltip":{"trigger":"axis"},"xAxis":{"type":"category","data":["Q1","Q2","Q3","Q4"]},"yAxis":{"type":"value"},"series":[{"type":"bar","name":"销量","data":[120,200,150,260]}]}</div>
   多个数据系列就在 series 里加多项；想要折线就 "type":"line"，饼图 "type":"pie" 并用 {"name","value"}。
+- 关键指标卡（KPI / 概览大数字，适合放开头做摘要）：用
+  <div class="metrics">[{"label":"营收","value":"¥1.28M","delta":"+12.4%","trend":"up"}, ...]</div>，
+  div 文本是 JSON 数组，每项 {label, value, delta?, trend?}（trend 取 up/down/flat）。
 - 数学公式：用 MathJax。行内 \\( ... \\) 或 $...$，独立成行 $$ ... $$ 或 \\[ ... \\]。
 - 流程图 / 时序图 / 状态图 / 类图 / 甘特图 / ER 图等**关系类图**：用 Mermaid，写成
   <pre class="mermaid"> ... </pre>，例如
@@ -126,6 +129,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
   hr{border:0;border-top:1px solid #E7E6E0;margin:20px 0}
   mjx-container[display]{margin:14px 0!important}
   .echarts{width:100%;margin:16px auto;}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;}
+  .metric-card{border:1px solid #E7E6E0;border-radius:12px;padding:14px 16px;background:#fff;}
+  .metric-card .ml{font-size:12px;color:#8C8B81;}
+  .metric-card .mv{font-size:24px;font-weight:700;color:#1A1A17;letter-spacing:-.02em;margin-top:4px;line-height:1.15;}
+  .metric-card .md{font-size:12px;margin-top:5px;font-weight:600;}
+  .metric-card .md.up{color:#0E9F6E;} .metric-card .md.down{color:#C5403E;} .metric-card .md.flat{color:#8C8B81;}
 </style>
 <script>
   window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},
@@ -170,7 +179,24 @@ __BODY__
     });
     if(hosts.length){window.addEventListener('resize',function(){hosts.forEach(function(c){try{c.resize();}catch(e){}});});}
   }
+  function _initMetrics(){
+    document.querySelectorAll('.metrics').forEach(function(el){
+      var raw=(el.textContent||'').trim(); if(!raw)return;
+      var arr; try{arr=JSON.parse(raw);}catch(e){el.textContent='指标卡 JSON 解析失败: '+e.message;el.style.color='#C5403E';return;}
+      if(!Array.isArray(arr))return;
+      el.textContent='';
+      arr.forEach(function(m){
+        var c=document.createElement('div'); c.className='metric-card';
+        var lbl=document.createElement('div'); lbl.className='ml'; lbl.textContent=m.label||''; c.appendChild(lbl);
+        var val=document.createElement('div'); val.className='mv'; val.textContent=(m.value==null?'':String(m.value)); c.appendChild(val);
+        if(m.delta!=null&&m.delta!==''){var d=document.createElement('div'); d.className='md '+(m.trend==='up'?'up':m.trend==='down'?'down':'flat');
+          d.textContent=(m.trend==='up'?'▲ ':m.trend==='down'?'▼ ':'')+String(m.delta); c.appendChild(d);}
+        el.appendChild(c);
+      });
+    });
+  }
   window.__renderReady=(async function(){
+    try{_initMetrics();}catch(e){}
     await _waitFor(function(){return window.echarts;},9000);
     try{_initEcharts();}catch(e){}
     await _waitFor(function(){return window.mermaid;},9000);
