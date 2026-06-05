@@ -7,24 +7,69 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605d" />
-<!-- 文字转 CAD：浏览器端 3D 预览（GLB）。优先自托管（国内必达），失败回退 jsdelivr 国内边缘/unpkg。 -->
+<link rel="stylesheet" href="/static/app.css?v=20260605e" />
+<!-- 文字转 CAD：浏览器端 3D 预览。自托管 three.js + STLLoader + OrbitControls（拖拽旋转/滚轮缩放/右键平移），
+     渲染 STL（纯三角面，无 glTF 外链/压缩解码器之类的坑），国内必达、最稳。 -->
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three/three.module.min.js?v=0.160.0" } }
+</script>
 <script type="module">
-  const CDNS = [
-    "/static/vendor/model-viewer.min.js?v=4.2.0",
-    "https://fastly.jsdelivr.net/npm/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
-    "https://gcore.jsdelivr.net/npm/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
-    "https://cdn.jsdelivr.net/npm/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
-    "https://unpkg.com/@google/model-viewer@4.2.0/dist/model-viewer.min.js",
-  ];
-  window.__mvReady = (async () => {
-    for (const url of CDNS) {
-      try { await import(url); return true; }
-      catch (e) { console.warn("model-viewer 加载失败，尝试下一个源:", url, e); }
-    }
-    console.error("model-viewer 所有源均加载失败，3D 预览不可用（STEP/STL/GLB 下载不受影响）");
-    return false;
-  })();
+  import * as THREE from 'three';
+  import { STLLoader } from '/static/vendor/three/STLLoader.js?v=0.160.0';
+  import { OrbitControls } from '/static/vendor/three/OrbitControls.js?v=0.160.0';
+
+  // 在 container 里挂一个可拖拽的 STL 预览，返回 { ready, dispose }
+  window.mountCadViewer = function (container, url) {
+    const getW = () => container.clientWidth || 600, getH = () => container.clientHeight || 460;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, getW() / getH(), 0.01, 1e6);
+    camera.up.set(0, 0, 1); // build123d 默认 +Z 朝上，拖拽手感更自然
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(getW(), getH());
+    container.appendChild(renderer.domElement);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f47, 1.05));
+    const key = new THREE.DirectionalLight(0xffffff, 1.35); key.position.set(1, 0.8, 1.2); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.55); fill.position.set(-1, -0.6, -0.8); scene.add(fill);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.09;
+    let mesh = null, raf = 0, disposed = false, autoRotate = true;
+    controls.addEventListener('start', () => { autoRotate = false; });
+    const ready = new Promise((resolve, reject) => {
+      new STLLoader().load(url, (geo) => {
+        if (!geo.attributes.position || geo.attributes.position.count === 0) { reject(new Error('空模型')); return; }
+        geo.computeVertexNormals(); geo.center(); geo.computeBoundingSphere();
+        const r = (geo.boundingSphere && geo.boundingSphere.radius) || 10;
+        mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xC9CDD4, metalness: 0.2, roughness: 0.55 }));
+        scene.add(mesh);
+        camera.near = r / 200; camera.far = r * 200;
+        camera.position.set(r * 1.9, -r * 2.4, r * 1.7); camera.updateProjectionMatrix();
+        controls.target.set(0, 0, 0); controls.minDistance = r * 0.5; controls.maxDistance = r * 14; controls.update();
+        resolve();
+      }, undefined, (err) => reject(err));
+    });
+    const onResize = () => { const w = getW(), h = getH(); if (w && h) { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); } };
+    let ro = null; try { ro = new ResizeObserver(onResize); ro.observe(container); } catch (e) { window.addEventListener('resize', onResize); }
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true; cancelAnimationFrame(raf);
+      try { ro ? ro.disconnect() : window.removeEventListener('resize', onResize); } catch (e) {}
+      try { controls.dispose(); } catch (e) {}
+      if (mesh) { mesh.geometry.dispose(); mesh.material.dispose(); }
+      try { renderer.dispose(); } catch (e) {}
+      const el = renderer.domElement; if (el && el.parentNode) el.parentNode.removeChild(el);
+    };
+    const tick = () => {
+      if (disposed) return;
+      if (!renderer.domElement.isConnected) { dispose(); return; } // 容器被替换/移除 → 自动清理，防 WebGL 上下文泄漏
+      raf = requestAnimationFrame(tick);
+      if (mesh && autoRotate) mesh.rotation.z += 0.006;
+      controls.update(); renderer.render(scene, camera);
+    };
+    tick();
+    return { ready, dispose };
+  };
+  window.__cadViewerReady = true;
 </script>
 </head>
 <body>
@@ -1003,7 +1048,10 @@ function showSvgResult(svgText, downloadName) {
   applyPreviewSize(getActiveSize());
   applyResultBg();
 }
+let cadViewer = null;
+function killCadViewer() { if (cadViewer) { try { cadViewer.dispose(); } catch (e) {} cadViewer = null; } }
 function showCadResult(files, meta) {
+  killCadViewer();
   lastCadFiles = files;
   const ak = encodeURIComponent(accessKey);
   $("empty-state").classList.add("hidden");
@@ -1012,11 +1060,7 @@ function showCadResult(files, meta) {
   $("result-card").style.cssText = "";
   const wrap = $("result-wrap");
   wrap.className = "";
-  wrap.innerHTML = `
-    <model-viewer id="cad-mv" src="${files.glb}?access_key=${ak}" camera-controls auto-rotate
-      environment-image="neutral" shadow-intensity="1" exposure="1.05" interaction-prompt="none"
-      style="width:100%;height:100%;background:transparent;"></model-viewer>
-    <div id="cad-fallback" class="cad-fallback hidden"></div>`;
+  wrap.innerHTML = `<div id="cad-viewer" class="cad-viewer"></div><div id="cad-fallback" class="cad-fallback hidden"></div>`;
   // 隐藏 SVG/PNG 相关工具按钮
   ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((id) => $(id).classList.add("hidden"));
   $("size-toolbar").style.display = "none";
@@ -1028,21 +1072,18 @@ function showCadResult(files, meta) {
   dl.removeAttribute("target");
   dl.textContent = "↓ STEP";
   dl.classList.remove("hidden");
-  // 其余格式放到底部 actions
-  $("result-info").textContent = "CAD" + (meta && meta.plan ? " · " + meta.plan : "");
+  $("result-info").textContent = "CAD · 拖拽旋转 / 滚轮缩放" + (meta && meta.plan ? " · " + meta.plan : "");
   $("result-actions").innerHTML = `
     <a class="btn ghost small" href="${files.stl}?access_key=${ak}" download="model.stl">↓ STL</a>
     <a class="btn ghost small" href="${files.glb}?access_key=${ak}" download="model.glb">↓ GLB</a>`;
   $("canvas-foot").classList.remove("hidden");
   applyResultBg();
 
-  // 3D 预览健壮性：组件库没加载成功 / GLB 加载失败 / 超时 → 显示可读兜底 + 下载，避免空白
-  const mv = $("cad-mv");
-  let settled = false;
+  // three.js + STL 预览（可拖拽旋转）。失败/空模型 → 可读兜底 + 下载，绝不空白
   const showFallback = (msg) => {
-    if (settled) return; settled = true;
     const fb = $("cad-fallback"); if (!fb) return;
-    if (mv) mv.style.display = "none";
+    killCadViewer();
+    const cv = $("cad-viewer"); if (cv) cv.style.display = "none";
     fb.className = "cad-fallback";
     fb.innerHTML = `
       <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04"/><path d="M12 22.08V12"/></svg>
@@ -1054,36 +1095,17 @@ function showCadResult(files, meta) {
         <a class="btn ghost small" href="${files.glb}?access_key=${ak}" download="model.glb">↓ GLB</a>
       </div>`;
   };
-  if (mv) {
-    mv.addEventListener("load", () => {
-      // GLB 加载成功，但可能是空模型（build123d 导出异常）→ 也给兜底
-      let empty = false;
-      try { const d = mv.getDimensions && mv.getDimensions(); if (d && (Math.abs(d.x) + Math.abs(d.y) + Math.abs(d.z)) < 1e-7) empty = true; } catch (e) {}
-      if (empty) showFallback("模型为空，无法预览");
-      else settled = true;
-    }, { once: true });
-    mv.addEventListener("error", (e) => {
-      const t = (e && e.detail && (e.detail.type || e.detail.sourceError && e.detail.sourceError.message)) || "";
-      console.warn("model-viewer error:", e && e.detail);
-      showFallback("3D 模型加载失败" + (t ? "（" + t + "）" : ""));
-    }, { once: true });
+  const container = $("cad-viewer");
+  if (!window.mountCadViewer) { showFallback("3D 预览组件未就绪，请刷新页面再试"); return; }
+  try {
+    cadViewer = window.mountCadViewer(container, files.stl + "?access_key=" + ak);
+    cadViewer.ready.catch((err) => {
+      console.warn("STL 预览失败:", err);
+      showFallback(err && err.message === "空模型" ? "模型为空，无法预览" : "3D 模型加载失败");
+    });
+  } catch (e) {
+    console.warn(e); showFallback("3D 预览初始化失败");
   }
-  Promise.resolve(window.__mvReady).then((loaded) => {
-    if (loaded === false || !customElements.get("model-viewer")) showFallback("3D 预览组件加载失败（网络/CDN）");
-  });
-  setTimeout(async () => {
-    if (settled || (mv && mv.loaded)) return;
-    // 诊断：直接看 GLB 端点到底返回了什么，把结论写进兜底，便于一眼定位
-    let diag = "";
-    try {
-      const r = await fetch(files.glb + "?access_key=" + ak, { cache: "no-store" });
-      const buf = await r.arrayBuffer();
-      const magic = String.fromCharCode.apply(null, new Uint8Array(buf.slice(0, 4)));
-      diag = `GLB ${r.status} · ${(r.headers.get("content-type") || "?")} · ${buf.byteLength}B · magic="${magic}"`;
-    } catch (e) { diag = "GLB 拉取失败: " + e.message; }
-    console.warn("CAD 预览诊断:", diag);
-    showFallback("3D 预览加载超时（" + diag + "）");
-  }, 20000);
 }
 function showHtmlResult(url, id) {
   // 公式/图表：结果是自包含 HTML，沙箱 iframe 里由浏览器渲染（MathJax 公式 + Mermaid 流程图）
