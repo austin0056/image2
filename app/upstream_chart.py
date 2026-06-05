@@ -42,24 +42,41 @@ _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，
   <div class="metrics">[{"label":"营收","value":"¥1.28M","delta":"+12.4%","trend":"up"}, ...]</div>，
   div 文本是 JSON 数组，每项 {label, value, delta?, trend?}（trend 取 up/down/flat）。
 - 数学公式：用 MathJax。行内 \\( ... \\) 或 $...$，独立成行 $$ ... $$ 或 \\[ ... \\]。
-- 架构图 / 框图 / 管线 / 流程 / 时序 / 状态 / 类图 / ER 图等**关系类图：一律优先 Mermaid**
-  （自动排版、稳定好看；要宽图就用 graph LR 横向）。写成 <pre class="mermaid"> ... </pre>，例如
-  <pre class="mermaid">graph LR; A[力历史 20 步] --> B[接触 token]; B --> C[几何时序 token]; C --> D[VLA 动作专家];</pre>
-  **不要手画 SVG 框图**——手画极易翻车（形状默认黑色填充、黑底黑字）。
-- 仅当确实需要“定制插画/示意图”（如球面受力、几何图）才用内联 <svg>，且**每个形状必须显式
-  写 fill 和 stroke**（千万别留默认——默认 fill 是黑色！）；文字用深色配浅底，确保可读。
-  需要复杂着色可配一个 <style> 块（只给你自己的 class 作用域，别改 body/h1/p 等全局）。
+- 架构图 / 框图 / 管线 pipeline / 数据流 / 模块关系 等**节点-连线类图：首选结构化 diagram 块**。
+  你只给“图的语义”（哪些节点、谁连谁），由模板自动排版、自动按文字撑开方框、自动配色——
+  **永不截断、永不黑底黑字、导出 PNG 也稳**。写成 <div class="diagram" data-dir="LR"> { JSON } </div>，
+  data-dir 取 LR(横向,默认) / TB(纵向) / RL / BT。JSON 形如：
+  <div class="diagram" data-dir="LR">{"nodes":[{"id":"a","label":"力历史 20 步","kind":"input"},{"id":"b","label":"归一化 → 投影","kind":"process","group":"接触编码器"},{"id":"c","label":"几何时序 token","kind":"data","group":"接触编码器"},{"id":"d","label":"VLA 动作专家","kind":"model"},{"id":"e","label":"机器人动作","kind":"output"}],"edges":[{"from":"a","to":"b","label":"force"},{"from":"b","to":"c"},{"from":"c","to":"d","label":"token"},{"from":"d","to":"e"}]}</div>
+  · node：id（唯一，只用英文/数字，给边引用）、label（显示文字，可中文，写完整词、随便多长都不会截断）、
+    kind?（决定品牌配色：input 输入 / process 处理 / model 模型 / output 输出 / data 数据 /
+    store 存储 / decision 判断 / external 外部）、
+    shape?（rect 方框默认 / round 圆角 / stadium 胶囊 / cylinder 圆柱 / diamond 菱形判断 / hexagon 六边）、
+    group?（同名的若干节点会被框进一个带标题的子框 subgraph，用来表达“某模块内含几步”）。
+  · edge：from / to（写对应 node 的 id）、label?（连线上的文字）。
+  · 你**绝不要**写任何坐标、宽高、颜色、SVG、classDef——只描述节点与连线，其余全交给模板。
+  · 颜色靠 kind 自动上品牌色，不用画图例(legend)；要分组就用 group。
+- 时序图 / 状态机 / 类图 / ER 图（diagram 块表达不了的）仍可直接写 <pre class="mermaid"> ... </pre>，
+  横向 graph LR、纵向 graph TD；节点文字写在 [] 里，Mermaid 会按文字自动撑开，不会截断。
+- **严禁手画 SVG 框图**（手画必翻车：黑底黑字、文字塞不下被截断、箭头打架）。
+  仅当确实是“定制插画 / 几何示意图”（球面受力、波形、坐标系示意等真正画不出的图）才用内联 <svg>，
+  且必须遵守：①标签尽量短；②每个 rect/circle/path/text 都显式写 fill 与 stroke（默认 fill 是黑色！），
+  浅底深字；③根 <svg> 用 width="100%" + viewBox="0 0 W H"（W/H 要盖住所有内容，最右/最下再留 20），
+  不要写死 height；④文字 text-anchor="middle" 居中、按字符数预留足够框宽（西文≈字符数×8.7+32，
+  含汉字≈汉字数×15+32），宁可框大也别截断。复杂着色可配 <style>（只作用到你自己的 class）。
 - 文字排版：用语义化标签 h1/h2/h3/p/ul/ol/table/figure/figcaption/blockquote/code 等。
 - 用一个 <h1> 作为整篇标题；需要时给表格加 <caption>。可配合小标题、要点列表、数据表把内容讲清楚。
 
 # 选型建议（强约束）
-- 数值/趋势/占比/分布 → ECharts。**架构/框图/流程/管线 → Mermaid（不要手画 SVG！）**。公式 → MathJax。
+- 数值/趋势/占比/分布 → ECharts。**节点-连线/架构/框图/流程/管线 → diagram 结构化块（严禁手画 SVG！）**；
+  时序/状态/类/ER → mermaid 块。公式 → MathJax。手画 SVG 只留给非图结构的定制插画。
 
 # 硬性约定
 - 只输出 <body> 内部的 HTML 片段；不要写 <html>/<head>/<body>/<script>/<link>。
   （<style> 可以用，但仅用于给你自己的图/SVG 着色，作用域到自定义 class，别覆盖全局标签。）
-  ECharts / MathJax / Mermaid 都由外层模板统一提供，你只负责内容与结构。
+  ECharts / MathJax / Mermaid / diagram 都由外层模板统一提供，你只负责内容与结构。
 - ECharts 的 option 必须是能被 JSON.parse 的纯 JSON（不能写 JS 表达式 / 函数 / 变量）。
+- diagram 块的文本必须是能被 JSON.parse 的纯 JSON（双引号、无尾逗号、无注释、无函数、不要裸 < >）；
+  node 的 id 只用英文/数字，label 才放中文；edge 的 from/to 必须能对上某个 node 的 id。
 - 内联 SVG 的每个 rect/circle/path/text 都要显式 fill 与 stroke，绝不依赖默认值。
 - 不要引用任何外部图片/字体/JS；不要写 onclick 等事件属性。
 - 正文用中文；公式、变量、代码保持原样。
@@ -71,9 +88,13 @@ _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，
 
 def _repair_prompt() -> str:
     return ('请只输出 <body> 内的 HTML 正文片段：数据图表用 '
-            '<div class="echarts" data-h="360">{合法的 ECharts option JSON}</div>，'
-            '架构/流程图用 <pre class="mermaid">（别手画 SVG），公式用 MathJax。'
-            '若用内联 SVG，每个形状必须显式写 fill/stroke（默认是黑色）。'
+            '<div class="echarts" data-h="360">{合法的 ECharts option JSON}</div>；'
+            '架构/流程/框图/管线/节点关系图用 <div class="diagram" data-dir="LR">'
+            '{nodes/edges 的纯 JSON}</div>（模板会自动排版、按文字撑开、不截断）——'
+            '严禁手画 SVG 框图；若上一版用 SVG 画了方块流程图，请改写成等价的 diagram 块。'
+            '时序/状态/类/ER 图可用 <pre class="mermaid">。公式用 MathJax。'
+            '内联 SVG 只用于定制插画，且每个形状显式写 fill/stroke（默认黑色）、'
+            '根 svg 用 width:100% 与盖住全部内容的 viewBox。'
             '不要 <html>/<head>/<script>，不要解释。')
 
 
@@ -144,6 +165,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
   hr{border:0;border-top:1px solid #E7E6E0;margin:20px 0}
   mjx-container[display]{margin:14px 0!important}
   .echarts{width:100%;margin:16px auto;}
+  .diagram{display:none;}
+  .mermaid{width:100%;margin:16px 0;text-align:center;}
   .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;}
   .metric-card{border:1px solid #E7E6E0;border-radius:12px;padding:14px 16px;background:#fff;}
   .metric-card .ml{font-size:12px;color:#8C8B81;}
@@ -210,12 +233,80 @@ __BODY__
       });
     });
   }
+  // 结构化 diagram JSON → Mermaid 源码：交给 Mermaid 自动排版/撑框/上品牌色，永不截断
+  var DIAG_KIND2CLASS={input:'info',data:'data',process:'info',model:'model',
+    output:'ok',store:'data',decision:'accent',external:'muted',accent:'accent'};
+  var DIAG_SHAPE={rect:['[',']'],round:['(',')'],stadium:['([','])'],
+    subroutine:['[[',']]'],cylinder:['[(',')]'],diamond:['{','}'],
+    hexagon:['{{','}}'],parallelogram:['[/','/]']};
+  function _diagId(s){return String(s==null?'':s).replace(/[^A-Za-z0-9_]/g,'_').slice(0,40)||'n';}
+  function _diagLabel(s){return '"'+String(s==null?'':s).replace(/"/g,'&quot;').replace(/[\r\n]+/g,' ').replace(/ /g,' ').trim()+'"';}
+  function _diagramToMermaid(spec,dir){
+    var nodes=(spec&&spec.nodes)||[], edges=(spec&&spec.edges)||[];
+    var d=/^(LR|RL|TB|BT)$/.test(dir||'')?dir:'LR';
+    var out=['graph '+d], groups={}, seen={}, classLines=[];
+    nodes.forEach(function(n){
+      var id=_diagId(n.id); if(seen[id])return; seen[id]=1;
+      var shape=n.shape||(n.kind==='decision'?'diamond':'rect');
+      var w=DIAG_SHAPE[shape]||DIAG_SHAPE.rect;
+      var line='  '+id+w[0]+_diagLabel(n.label)+w[1];
+      if(n.group){(groups[n.group]=groups[n.group]||[]).push(line);}else{out.push(line);}
+      var cls=DIAG_KIND2CLASS[n.kind]; if(cls)classLines.push('  class '+id+' '+cls);
+    });
+    Object.keys(groups).forEach(function(g,i){
+      out.push('  subgraph sg'+i+'['+_diagLabel(g).slice(1,-1)+']');
+      groups[g].forEach(function(l){out.push('  '+l);});
+      out.push('  end');
+    });
+    edges.forEach(function(e){
+      var a=_diagId(e.from), b=_diagId(e.to);
+      if(!seen[a]||!seen[b])return;   // 丢弃指向不存在节点的边，避免凭空多出节点
+      out.push('  '+a+(e.label?(' -->|'+_diagLabel(e.label)+'| '):' --> ')+b);
+    });
+    return out.concat(classLines).join('\n');
+  }
+  function _initDiagrams(){
+    document.querySelectorAll('.diagram').forEach(function(el){
+      var raw=(el.textContent||'').trim(); if(!raw)return;
+      var spec; try{spec=JSON.parse(raw);}
+      catch(e){var err=document.createElement('div');err.style.color='#C5403E';err.textContent='结构图 JSON 解析失败: '+e.message;el.replaceWith(err);return;}
+      var pre=document.createElement('pre'); pre.className='mermaid';
+      pre.textContent=_diagramToMermaid(spec, el.getAttribute('data-dir'));
+      el.replaceWith(pre);
+    });
+  }
   window.__renderReady=(async function(){
     try{_initMetrics();}catch(e){}
     await _waitFor(function(){return window.echarts;},9000);
     try{_initEcharts();}catch(e){}
     await _waitFor(function(){return window.mermaid;},9000);
-    try{mermaid.initialize({startOnLoad:false,theme:'neutral',securityLevel:'strict',htmlLabels:false,flowchart:{htmlLabels:false}});await mermaid.run();}catch(e){}
+    try{_initDiagrams();}catch(e){}
+    try{
+      mermaid.initialize({
+        startOnLoad:false, securityLevel:'strict', htmlLabels:false, theme:'base',
+        themeVariables:{
+          fontFamily:'Inter,"PingFang SC","Microsoft YaHei",sans-serif', fontSize:'14px',
+          primaryColor:'#F7F5F2', primaryBorderColor:'#D8D7D0', primaryTextColor:'#1A1A17',
+          lineColor:'#9A9A90', textColor:'#57564E',
+          clusterBkg:'#FBFAF8', clusterBorder:'#E7E6E0',
+          secondaryColor:'#EEF3FB', tertiaryColor:'#F0FAF5', edgeLabelBackground:'#FFFFFF'
+        },
+        flowchart:{htmlLabels:false, curve:'basis', nodeSpacing:46, rankSpacing:64, padding:14, useMaxWidth:true}
+      });
+      if(!document.getElementById('brandMermaidCSS')){
+        var _st=document.createElement('style'); _st.id='brandMermaidCSS';
+        _st.textContent=
+          '.mermaid .node.accent rect,.mermaid .node.accent polygon,.mermaid .node.accent path{fill:#FBEDE6 !important;stroke:#D9531E !important;stroke-width:1.4px !important}'+
+          '.mermaid .node.info rect,.mermaid .node.info polygon,.mermaid .node.info path{fill:#EEF3FB !important;stroke:#2F6BD6 !important;stroke-width:1.2px !important}'+
+          '.mermaid .node.ok rect,.mermaid .node.ok polygon,.mermaid .node.ok path{fill:#E9F7F1 !important;stroke:#0E9F6E !important;stroke-width:1.2px !important}'+
+          '.mermaid .node.model rect,.mermaid .node.model polygon,.mermaid .node.model path{fill:#F0EAFB !important;stroke:#7C3AED !important;stroke-width:1.2px !important}'+
+          '.mermaid .node.data rect,.mermaid .node.data polygon,.mermaid .node.data path{fill:#FBF1DA !important;stroke:#B7791F !important;stroke-width:1.2px !important}'+
+          '.mermaid .node.muted rect,.mermaid .node.muted polygon,.mermaid .node.muted path{fill:#F4F4F1 !important;stroke:#C9C8C1 !important;stroke-width:1px !important}'+
+          '.mermaid .node .label,.mermaid .node text,.mermaid .node tspan{fill:#1A1A17 !important;color:#1A1A17 !important}';
+        document.head.appendChild(_st);
+      }
+      await mermaid.run();
+    }catch(e){}
     await _waitFor(function(){return window.MathJax&&MathJax.startup&&MathJax.startup.promise;},9000);
     try{await MathJax.startup.promise;}catch(e){}
     try{if(window.MathJax&&MathJax.typesetPromise)await MathJax.typesetPromise();}catch(e){}
