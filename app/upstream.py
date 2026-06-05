@@ -1,6 +1,7 @@
 """上游调用封装：文生图与图生图。返回 PNG 字节。"""
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import logging
@@ -91,6 +92,56 @@ def _err_text(resp: httpx.Response) -> str:
         return resp.text[:500]
 
 
+# 瞬时错误：限流(429) + 网关错误(5xx)。上游图片接口的 input-images 限流通常几十毫秒~几秒就恢复，
+# 中转有时把限流包成 502，所以连同响应体里的 rate_limit 一起识别。
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+_MAX_IMG_RETRIES = 4
+_RETRY_BACKOFF = [0.5, 1.0, 2.0, 4.0]  # 秒
+
+
+def _is_rate_limited(status: int, err: str) -> bool:
+    e = (err or "").lower()
+    return status == 429 or "rate_limit" in e or "rate limit" in e or "too many requests" in e
+
+
+def _is_transient(status: int, err: str) -> bool:
+    return status in _RETRY_STATUS or _is_rate_limited(status, err)
+
+
+async def _post_image_with_retry(do_post, *, label: str, client: httpx.AsyncClient, expected_size: str) -> bytes:
+    """统一的图片请求执行：限流/网关瞬时错误退避重试；非瞬时 4xx 去掉 response_format 降级一次。
+
+    do_post(with_rf: bool) -> httpx.Response：with_rf=False 时不带 response_format（兼容个别中转）。
+    """
+    last_status, last_err = 0, "未知错误"
+    for attempt in range(_MAX_IMG_RETRIES + 1):
+        resp = await do_post(True)
+        if resp.status_code < 400:
+            return await _decode_response(client, resp.json(), expected_size)
+        last_status, last_err = resp.status_code, _err_text(resp)
+
+        if _is_transient(last_status, last_err) and attempt < _MAX_IMG_RETRIES:
+            delay = _RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)]
+            log.warning("%s 瞬时错误 %s（第 %d 次），%.1fs 后重试：%s", label, last_status, attempt + 1, delay, last_err[:160])
+            await asyncio.sleep(delay)
+            continue
+
+        # 非瞬时错误：可能是中转不支持 response_format=b64_json，去掉再试一次
+        resp2 = await do_post(False)
+        if resp2.status_code < 400:
+            return await _decode_response(client, resp2.json(), expected_size)
+        last_status, last_err = resp2.status_code, _err_text(resp2)
+        # 降级后若仍是瞬时限流且还有次数，退避后整轮再来
+        if _is_transient(last_status, last_err) and attempt < _MAX_IMG_RETRIES:
+            await asyncio.sleep(_RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)])
+            continue
+        break
+
+    if _is_rate_limited(last_status, last_err):
+        raise UpstreamError(f"{label} 上游限流，多次重试仍繁忙，请稍后再试（{last_status}）")
+    raise UpstreamError(f"{label} {last_status}: {last_err}")
+
+
 async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes:
     cfg = await _provider_settings()
     url = f"{cfg['upstream_base']}/images/generations"
@@ -104,15 +155,10 @@ async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes
         "response_format": "b64_json",
     }
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(url, json=body, headers=headers)
-        if resp.status_code >= 400:
-            # 降级：去掉 response_format 重试一次（部分中转不支持）
-            body2 = {k: v for k, v in body.items() if k != "response_format"}
-            resp2 = await client.post(url, json=body2, headers=headers)
-            if resp2.status_code >= 400:
-                raise UpstreamError(f"generations {resp.status_code}: {_err_text(resp)}")
-            return await _decode_response(client, resp2.json(), size)
-        return await _decode_response(client, resp.json(), size)
+        async def do_post(with_rf: bool):
+            b = body if with_rf else {k: v for k, v in body.items() if k != "response_format"}
+            return await client.post(url, json=b, headers=headers)
+        return await _post_image_with_retry(do_post, label="generations", client=client, expected_size=size)
 
 
 def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes, str]]]:
@@ -139,11 +185,7 @@ async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str
         "response_format": "b64_json",
     }
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(url, data=data, files=_build_edit_files(ref_pngs), headers=headers)
-        if resp.status_code >= 400:
-            data2 = {k: v for k, v in data.items() if k != "response_format"}
-            resp2 = await client.post(url, data=data2, files=_build_edit_files(ref_pngs), headers=headers)
-            if resp2.status_code >= 400:
-                raise UpstreamError(f"edits {resp.status_code}: {_err_text(resp)}")
-            return await _decode_response(client, resp2.json(), size)
-        return await _decode_response(client, resp.json(), size)
+        async def do_post(with_rf: bool):
+            d = data if with_rf else {k: v for k, v in data.items() if k != "response_format"}
+            return await client.post(url, data=d, files=_build_edit_files(ref_pngs), headers=headers)
+        return await _post_image_with_retry(do_post, label="edits", client=client, expected_size=size)
