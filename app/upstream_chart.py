@@ -31,18 +31,27 @@ class ChartError(RuntimeError):
 _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，输出一段 **HTML 正文片段**
 （只输出 <body> 内部的内容），由浏览器渲染成排版精良的图文。
 
-# 能力与写法
-- 数学公式：用 MathJax 语法。行内 \\( ... \\) 或 $...$，独立成行 $$ ... $$ 或 \\[ ... \\]。
-- 流程图 / 时序图 / 状态图 / 类图 / 甘特图 / 饼图等：用 Mermaid，写成
+# 能力与写法（按需选型，优先用专业库，别手画 SVG）
+- 数据图表（折线/柱状/散点/饼图/环形/雷达/K线/箱线/热力图/桑基/仪表盘等）：**首选 ECharts**。
+  写成 <div class="echarts" data-h="360">{ ECharts option 的 JSON }</div>，div 的文本就是一个
+  ECharts `option` 的**合法 JSON**：双引号、无尾逗号、无注释、无函数、不要出现裸 < 或 >。
+  配色 / 字体 / 留白已有统一主题，你只需给数据与必要的 title / tooltip / 坐标轴 / series。例如：
+  <div class="echarts" data-h="340">{"title":{"text":"季度销量"},"tooltip":{"trigger":"axis"},"xAxis":{"type":"category","data":["Q1","Q2","Q3","Q4"]},"yAxis":{"type":"value"},"series":[{"type":"bar","name":"销量","data":[120,200,150,260]}]}</div>
+  多个数据系列就在 series 里加多项；想要折线就 "type":"line"，饼图 "type":"pie" 并用 {"name","value"}。
+- 数学公式：用 MathJax。行内 \\( ... \\) 或 $...$，独立成行 $$ ... $$ 或 \\[ ... \\]。
+- 流程图 / 时序图 / 状态图 / 类图 / 甘特图 / ER 图等**关系类图**：用 Mermaid，写成
   <pre class="mermaid"> ... </pre>，例如
   <pre class="mermaid">graph TD; A[开始] --> B{判断}; B -->|是| C[执行]; B -->|否| D[结束];</pre>
-- 普通图表（折线/柱状/散点）：可用内联 <svg> 直接绘制，或用 Mermaid 的 xychart-beta / pie。
 - 文字排版：用语义化标签 h1/h2/h3/p/ul/ol/table/figure/figcaption/blockquote/code 等。
-- 用一个 <h1> 作为整篇标题；需要时给表格加 <caption>。
+- 用一个 <h1> 作为整篇标题；需要时给表格加 <caption>。可配合小标题、要点列表、数据表把内容讲清楚。
+
+# 选型建议
+- 有数值 / 趋势 / 占比 / 分布 → ECharts（最好看）。关系 / 流程 / 步骤 → Mermaid。公式 → MathJax。
 
 # 硬性约定
 - 只输出 <body> 内部的 HTML 片段；**不要**写 <html>/<head>/<body>/<script>/<style>/<link>。
-  CSS、MathJax、Mermaid 都由外层模板统一提供，你只负责内容与结构。
+  CSS、ECharts、MathJax、Mermaid 都由外层模板统一提供，你只负责内容与结构。
+- ECharts 的 option 必须是能被 JSON.parse 的纯 JSON（不能写 JS 表达式 / 函数 / 变量）。
 - 不要引用任何外部图片/字体/JS；不要写 onclick 等事件属性。
 - 正文用中文；公式、变量、代码保持原样。
 
@@ -52,8 +61,10 @@ _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，
 
 
 def _repair_prompt() -> str:
-    return ('请只输出 <body> 内的 HTML 正文片段（可含 MathJax 公式与 '
-            '<pre class="mermaid"> 流程图），不要 <html>/<head>/<script>/<style>，不要解释。')
+    return ('请只输出 <body> 内的 HTML 正文片段：数据图表用 '
+            '<div class="echarts" data-h="360">{合法的 ECharts option JSON}</div>，'
+            '公式用 MathJax，流程图用 <pre class="mermaid">。'
+            '不要 <html>/<head>/<script>/<style>，不要解释。')
 
 
 def extract_html(text: str) -> str:
@@ -114,11 +125,13 @@ _HTML_TEMPLATE = r"""<!doctype html>
   a{color:#D9531E}
   hr{border:0;border-top:1px solid #E7E6E0;margin:20px 0}
   mjx-container[display]{margin:14px 0!important}
+  .echarts{width:100%;margin:16px auto;}
 </style>
 <script>
   window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},
     svg:{fontCache:'none'},options:{enableMenu:false}};
 </script>
+<script src="/static/vendor/echarts.min.js?v=5.5.1"></script>
 <script async src="https://fastly.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 <script src="https://fastly.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script src="https://fastly.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -129,7 +142,37 @@ __BODY__
   function _waitFor(cond,ms){return new Promise(function(res){
     var t=setInterval(function(){if(cond()){clearInterval(t);res();}},50);
     setTimeout(function(){clearInterval(t);res();},ms||9000);});}
+  // ECharts 统一主题：克制焦橙配色 + Inter 字体 + 轻网格，保证默认就好看
+  var ECHARTS_THEME={
+    color:['#D9531E','#2F6BD6','#0E9F6E','#B7791F','#7C3AED','#C5403E','#0891B2','#DB2777','#65A30D'],
+    backgroundColor:'transparent',
+    textStyle:{fontFamily:'Inter,"PingFang SC","Microsoft YaHei",sans-serif',color:'#57564E'},
+    title:{textStyle:{color:'#1A1A17',fontSize:15,fontWeight:600},left:'center',top:6},
+    legend:{textStyle:{color:'#57564E'},top:30},
+    grid:{left:'5%',right:'5%',bottom:'7%',top:64,containLabel:true},
+    categoryAxis:{axisLine:{lineStyle:{color:'#D8D7D0'}},axisTick:{show:false},axisLabel:{color:'#57564E'},splitLine:{show:false}},
+    valueAxis:{axisLine:{show:false},axisTick:{show:false},axisLabel:{color:'#8C8B81'},splitLine:{lineStyle:{color:'#EEEDE8'}}},
+    line:{smooth:true,symbolSize:6,lineStyle:{width:2.5}},
+    bar:{itemStyle:{borderRadius:[4,4,0,0]}},
+    pie:{itemStyle:{borderColor:'#fff',borderWidth:2}}
+  };
+  function _initEcharts(){
+    if(!window.echarts)return;
+    try{echarts.registerTheme('img2',ECHARTS_THEME);}catch(e){}
+    var hosts=[];
+    document.querySelectorAll('.echarts').forEach(function(el){
+      var raw=(el.textContent||'').trim(); if(!raw)return;
+      var opt; try{opt=JSON.parse(raw);}catch(e){el.textContent='图表配置 JSON 解析失败: '+e.message;el.style.color='#C5403E';return;}
+      var h=parseInt(el.getAttribute('data-h'))||360;
+      el.textContent='';el.style.height=h+'px';el.style.width='100%';
+      try{var c=echarts.init(el,'img2',{renderer:'svg'});c.setOption(opt);hosts.push(c);}
+      catch(e){el.textContent='图表渲染失败: '+e.message;el.style.color='#C5403E';}
+    });
+    if(hosts.length){window.addEventListener('resize',function(){hosts.forEach(function(c){try{c.resize();}catch(e){}});});}
+  }
   window.__renderReady=(async function(){
+    await _waitFor(function(){return window.echarts;},9000);
+    try{_initEcharts();}catch(e){}
     await _waitFor(function(){return window.mermaid;},9000);
     try{mermaid.initialize({startOnLoad:false,theme:'neutral',securityLevel:'strict',htmlLabels:false,flowchart:{htmlLabels:false}});await mermaid.run();}catch(e){}
     await _waitFor(function(){return window.MathJax&&MathJax.startup&&MathJax.startup.promise;},9000);
