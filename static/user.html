@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605f" />
+<link rel="stylesheet" href="/static/app.css?v=20260605g" />
 <!-- 文字转 CAD：浏览器端 3D 预览。自托管 three.js + STLLoader + OrbitControls（拖拽旋转/滚轮缩放/右键平移），
      渲染 STL（纯三角面，无 glTF 外链/压缩解码器之类的坑），国内必达、最稳。 -->
 <script type="importmap">
@@ -419,7 +419,7 @@
     <main class="canvas">
       <!-- toolbar -->
       <div class="canvas-toolbar">
-        <div class="group">
+        <div class="group" id="bg-toolbar">
           <span class="dim" style="font-size:11.5px;padding:0 8px;">背景</span>
           <button class="tool preview-bg active" data-bg="light">白底</button>
           <button class="tool preview-bg" data-bg="dark">黑底</button>
@@ -1165,11 +1165,15 @@ function applyPreviewSize(px) {
   }
 }
 function applyResultBg() {
-  const active = document.querySelector(".preview-bg.active");
-  const kind = active ? active.dataset.bg : "light";
   const stage = $("canvas-stage");
   const card = $("result-card");
-  // 背景作用在画布和结果卡两者上
+  // 背景切换只对「图片/图标」有意义；CAD（深色工作室）与图表（HTML 文档）用不到，
+  // 隐藏那排「白底/黑底/透明」并强制走浅底，避免误导和深底穿帮。
+  const usesBg = !!card && !card.classList.contains("cad-mode") && !card.classList.contains("html-mode");
+  const bgt = $("bg-toolbar");
+  if (bgt) bgt.style.display = usesBg ? "" : "none";
+  let kind = "light";
+  if (usesBg) { const active = document.querySelector(".preview-bg.active"); kind = active ? active.dataset.bg : "light"; }
   [stage, card].forEach((el) => {
     if (!el) return;
     el.classList.remove("bg-dark", "bg-checker");
