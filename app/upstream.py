@@ -6,6 +6,7 @@ import base64
 import io
 import itertools
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -82,6 +83,95 @@ def _err_text(resp: httpx.Response) -> str:
         return resp.text[:500]
 
 
+# ----- Gemini 等“对话式出图”模型：走 /chat/completions，图片在返回消息里 -----
+# （这类中转的 OpenAI images API 往往不支持；图片以 data:base64 / url / inline_data 形式回来。）
+def _is_chat_image(model: str) -> bool:
+    m = (model or "").lower()
+    if "gpt-image" in m or "dall-e" in m or "dalle" in m:
+        return False  # OpenAI 原生 images API
+    return ("gemini" in m and "image" in m) or "flash-image" in m \
+        or "nano-banana" in m or "nano_banana" in m
+
+
+def _img_part(png: bytes) -> dict[str, Any]:
+    return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(png).decode()}}
+
+
+def _collect_image_urls(payload: dict[str, Any]) -> list[str]:
+    """从对话式出图响应里收集所有“图片来源”（data:base64 或 http url），尽量兼容各家中转。"""
+    urls: list[str] = []
+
+    def push(u):
+        if isinstance(u, str) and u.strip():
+            urls.append(u.strip())
+
+    choices = payload.get("choices") or []
+    msg = (choices[0].get("message", {}) if choices else {}) or {}
+
+    # 1) message.images: [{image_url:{url}}] / [{url}] / ["data:..."]
+    for it in (msg.get("images") or []):
+        if isinstance(it, str):
+            push(it)
+        elif isinstance(it, dict):
+            iu = it.get("image_url")
+            if isinstance(iu, dict):
+                push(iu.get("url"))
+            elif isinstance(iu, str):
+                push(iu)
+            push(it.get("url") or it.get("b64_json") and ("data:image/png;base64," + it["b64_json"]))
+
+    # 2) message.content 为分段数组：image_url / inline_data(Gemini 原生)
+    content = msg.get("content")
+    if isinstance(content, list):
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") in ("image_url", "output_image", "image"):
+                iu = part.get("image_url")
+                push(iu.get("url") if isinstance(iu, dict) else iu)
+                push(part.get("url"))
+            idata = part.get("inline_data") or part.get("inlineData")
+            if isinstance(idata, dict) and idata.get("data"):
+                mime = idata.get("mime_type") or idata.get("mimeType") or "image/png"
+                push(f"data:{mime};base64,{idata['data']}")
+
+    # 3) message.content 为字符串：markdown ![](data:/url) 或裸 data-uri / url
+    if isinstance(content, str) and content:
+        m = re.search(r"data:image/[\w.+-]+;base64,[A-Za-z0-9+/=\s]+", content)
+        if m:
+            push(re.sub(r"\s+", "", m.group(0)))
+        else:
+            m2 = re.search(r"!\[[^\]]*\]\((https?://[^)\s]+)\)", content) or re.search(r"https?://\S+\.(?:png|jpe?g|webp)\b", content)
+            if m2:
+                push(m2.group(1) if m2.lastindex else m2.group(0))
+
+    # 4) 顶层 data[]（个别中转把图放这）
+    for it in (payload.get("data") or []):
+        if isinstance(it, dict):
+            if it.get("b64_json"):
+                push("data:image/png;base64," + it["b64_json"])
+            push(it.get("url"))
+    return urls
+
+
+async def _decode_chat_image(client: httpx.AsyncClient, payload: dict[str, Any]) -> bytes:
+    """从对话式出图响应里取出 PNG 字节（不校验尺寸——这类模型一般不接受 size 控制）。"""
+    cands = _collect_image_urls(payload)
+    last = ""
+    for u in cands:
+        try:
+            if u.startswith("data:"):
+                return _normalize_png(base64.b64decode(u.split(",", 1)[1]))
+            if u.startswith("http"):
+                r = await client.get(u, timeout=_TIMEOUT)
+                r.raise_for_status()
+                return _normalize_png(r.content)
+        except Exception as e:  # noqa: BLE001
+            last = f"{type(e).__name__}: {e}"
+            continue
+    raise UpstreamError(f"出图响应里没找到可用图片（{last}）。响应片段：{str(payload)[:300]}")
+
+
 # 瞬时错误：限流(429) + 网关错误(5xx)。上游图片接口的 input-images 限流通常几十毫秒~几秒就恢复，
 # 中转有时把限流包成 502，所以连同响应体里的 rate_limit 一起识别。
 _RETRY_STATUS = {429, 500, 502, 503, 504}
@@ -101,13 +191,12 @@ def _is_transient(status: int, err: str) -> bool:
 _rr_counter = itertools.count()  # 轮询起点（asyncio 单线程，简单计数即可）
 
 
-async def _post_image(make_request, *, label: str, client: httpx.AsyncClient,
-                      expected_size: str, sources: list[dict[str, str]]) -> bytes:
+async def _post_image(make_request, decode, *, label: str, sources: list[dict[str, str]]) -> bytes:
     """在来源池上轮询 + 限流故障转移地发图片请求。
 
-    make_request(src, with_rf) -> httpx.Response。每轮按轮询起点遍历所有来源，命中即返回；
-    某来源限流/瞬时错误/连不上就立刻切下一个来源；一整轮所有来源都繁忙才退避后再来一轮。
-    非瞬时 4xx（内容策略/参数错误，各来源结果一致）直接报错，不浪费故障转移。
+    make_request(src, with_rf) -> httpx.Response；decode(src, resp) -> bytes（按该来源的协议解码图片）。
+    每轮按轮询起点遍历所有来源，命中即返回；某来源限流/瞬时错误/连不上就立刻切下一个来源；
+    一整轮所有来源都繁忙才退避后再来一轮。非瞬时 4xx（内容策略/参数错误，各来源一致）直接报错。
     """
     n = len(sources)
     start = next(_rr_counter)
@@ -121,7 +210,7 @@ async def _post_image(make_request, *, label: str, client: httpx.AsyncClient,
                 last_status, last_err = 0, f"连接失败: {e}"
                 continue  # 这个来源连不上 → 下一个
             if resp.status_code < 400:
-                return await _decode_response(client, resp.json(), expected_size)
+                return await decode(src, resp)
             last_status, last_err = resp.status_code, _err_text(resp)
             if _is_transient(last_status, last_err):
                 log.warning("%s 来源繁忙 %s，切下一个来源：%s", label, last_status, last_err[:140])
@@ -133,7 +222,7 @@ async def _post_image(make_request, *, label: str, client: httpx.AsyncClient,
                 last_status, last_err = 0, f"连接失败: {e}"
                 continue
             if resp2.status_code < 400:
-                return await _decode_response(client, resp2.json(), expected_size)
+                return await decode(src, resp2)
             s2, e2 = resp2.status_code, _err_text(resp2)
             if not _is_transient(s2, e2):
                 raise UpstreamError(f"{label} {s2}: {e2}")  # 内容策略等，各来源一致 → 直接报错
@@ -154,11 +243,20 @@ async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes
         raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         async def make_request(src: dict[str, str], with_rf: bool):
+            if _is_chat_image(src["model"]):  # Gemini 等对话式出图：/chat/completions
+                body = {"model": src["model"], "messages": [{"role": "user", "content": prompt}]}
+                return await client.post(f"{src['base']}/chat/completions", json=body, headers=_auth_headers(src["key"]))
             body = {"model": src["model"], "prompt": prompt, "size": size, "quality": quality, "n": 1}
             if with_rf:
                 body["response_format"] = "b64_json"
             return await client.post(f"{src['base']}/images/generations", json=body, headers=_auth_headers(src["key"]))
-        return await _post_image(make_request, label="generations", client=client, expected_size=size, sources=sources)
+
+        async def decode(src: dict[str, str], resp: httpx.Response):
+            if _is_chat_image(src["model"]):
+                return await _decode_chat_image(client, resp.json())
+            return await _decode_response(client, resp.json(), size)
+
+        return await _post_image(make_request, decode, label="generations", sources=sources)
 
 
 def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes, str]]]:
@@ -178,9 +276,19 @@ async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str
         raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         async def make_request(src: dict[str, str], with_rf: bool):
+            if _is_chat_image(src["model"]):  # Gemini 等：参考图作为多模态消息传入
+                content = [{"type": "text", "text": prompt}] + [_img_part(p) for p in ref_pngs]
+                body = {"model": src["model"], "messages": [{"role": "user", "content": content}]}
+                return await client.post(f"{src['base']}/chat/completions", json=body, headers=_auth_headers(src["key"]))
             data = {"model": src["model"], "prompt": prompt, "size": size, "quality": quality, "n": "1"}
             if with_rf:
                 data["response_format"] = "b64_json"
             return await client.post(f"{src['base']}/images/edits", data=data,
                                      files=_build_edit_files(ref_pngs), headers=_auth_headers(src["key"]))
-        return await _post_image(make_request, label="edits", client=client, expected_size=size, sources=sources)
+
+        async def decode(src: dict[str, str], resp: httpx.Response):
+            if _is_chat_image(src["model"]):
+                return await _decode_chat_image(client, resp.json())
+            return await _decode_response(client, resp.json(), size)
+
+        return await _post_image(make_request, decode, label="edits", sources=sources)
