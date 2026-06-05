@@ -97,6 +97,48 @@ def _img_part(png: bytes) -> dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(png).decode()}}
 
 
+def _push_from_part(part: Any, push) -> None:
+    """从单个“消息分段/Gemini part”里提取图片来源。兼容 OpenAI 分段与 Gemini 原生 part。"""
+    if not isinstance(part, dict):
+        return
+    # OpenAI 风格分段：image_url / output_image / image
+    if part.get("type") in ("image_url", "output_image", "image"):
+        iu = part.get("image_url")
+        push(iu.get("url") if isinstance(iu, dict) else iu)
+        push(part.get("url"))
+    # Gemini 原生 inlineData / inline_data（base64，无 data: 前缀）
+    idata = part.get("inline_data") or part.get("inlineData")
+    if isinstance(idata, dict) and idata.get("data"):
+        mime = idata.get("mime_type") or idata.get("mimeType") or "image/png"
+        push(f"data:{mime};base64,{idata['data']}")
+    # Gemini fileData：图片以文件 URI 引用回来
+    fdata = part.get("file_data") or part.get("fileData")
+    if isinstance(fdata, dict):
+        push(fdata.get("file_uri") or fdata.get("fileUri"))
+    # 文本分段里偶尔夹带 data-uri / 图片 url（base64 连续，遇空白即止，避免吞掉后续文字）
+    txt = part.get("text")
+    if isinstance(txt, str) and txt:
+        m = re.search(r"data:image/[\w.+-]+;base64,[A-Za-z0-9+/=]+", txt)
+        if m:
+            push(m.group(0))
+        else:
+            m2 = re.search(r"!\[[^\]]*\]\((https?://[^)\s]+)\)", txt) or re.search(r"https?://\S+\.(?:png|jpe?g|webp)\b", txt)
+            if m2:
+                push(m2.group(1) if m2.lastindex else m2.group(0))
+
+
+def _candidate_roots(payload: dict[str, Any]) -> list:
+    """取 Gemini 原生 candidates 列表，兼容个别中转的一层包装（response/result）。"""
+    cands = payload.get("candidates")
+    if cands:
+        return cands if isinstance(cands, list) else []
+    for wk in ("response", "result"):
+        sub = payload.get(wk)
+        if isinstance(sub, dict) and isinstance(sub.get("candidates"), list):
+            return sub["candidates"]
+    return []
+
+
 def _collect_image_urls(payload: dict[str, Any]) -> list[str]:
     """从对话式出图响应里收集所有“图片来源”（data:base64 或 http url），尽量兼容各家中转。"""
     urls: list[str] = []
@@ -124,16 +166,7 @@ def _collect_image_urls(payload: dict[str, Any]) -> list[str]:
     content = msg.get("content")
     if isinstance(content, list):
         for part in content:
-            if not isinstance(part, dict):
-                continue
-            if part.get("type") in ("image_url", "output_image", "image"):
-                iu = part.get("image_url")
-                push(iu.get("url") if isinstance(iu, dict) else iu)
-                push(part.get("url"))
-            idata = part.get("inline_data") or part.get("inlineData")
-            if isinstance(idata, dict) and idata.get("data"):
-                mime = idata.get("mime_type") or idata.get("mimeType") or "image/png"
-                push(f"data:{mime};base64,{idata['data']}")
+            _push_from_part(part, push)
 
     # 3) message.content 为字符串：markdown ![](data:/url) 或裸 data-uri / url
     if isinstance(content, str) and content:
@@ -151,6 +184,21 @@ def _collect_image_urls(payload: dict[str, Any]) -> list[str]:
             if it.get("b64_json"):
                 push("data:image/png;base64," + it["b64_json"])
             push(it.get("url"))
+
+    # 5) Gemini 原生 generateContent：candidates[].content.parts[].inlineData
+    for cand in _candidate_roots(payload):
+        if not isinstance(cand, dict):
+            continue
+        cont = cand.get("content")
+        if isinstance(cont, dict):
+            parts = cont.get("parts") or []
+        elif isinstance(cont, list):
+            parts = cont
+        else:
+            parts = []
+        for part in parts:
+            _push_from_part(part, push)
+
     return urls
 
 
