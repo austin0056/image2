@@ -36,7 +36,9 @@ class ImageProviderSettingsBody(BaseModel):
     upstream_model: str = Field(..., min_length=1, max_length=200)
     # 空字符串/None 表示不修改现有密钥。
     upstream_key: str | None = Field(default=None, max_length=5000)
-    price_cents: int = Field(..., ge=0, le=1_000_000)
+    price_cents: int = Field(..., ge=0, le=1_000_000)            # 1K 单价
+    price_2k_cents: int | None = Field(default=None, ge=0, le=1_000_000)
+    price_4k_cents: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
 class ProviderSettingsBody(BaseModel):
@@ -100,6 +102,8 @@ async def admin_update_image_provider_settings(body: ImageProviderSettingsBody) 
         upstream_base=upstream_base,
         upstream_model=upstream_model,
         price_cents=body.price_cents,
+        price_2k_cents=body.price_2k_cents,
+        price_4k_cents=body.price_4k_cents,
         upstream_key=key or None,
     )
 
@@ -161,7 +165,9 @@ class ImageModelBody(BaseModel):
     base: str = Field(..., min_length=1, max_length=500)
     model: str = Field(..., min_length=1, max_length=200)
     key: str = Field(..., min_length=1, max_length=5000)
-    price_cents: int = Field(..., ge=0, le=1_000_000)
+    price_cents: int = Field(..., ge=0, le=1_000_000)            # 1K 单价
+    price_2k_cents: int | None = Field(default=None, ge=0, le=1_000_000)
+    price_4k_cents: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
 class ImageModelPatch(BaseModel):
@@ -170,6 +176,8 @@ class ImageModelPatch(BaseModel):
     model: str | None = Field(default=None, max_length=200)
     key: str | None = Field(default=None, max_length=5000)  # 空=保留
     price_cents: int | None = Field(default=None, ge=0, le=1_000_000)
+    price_2k_cents: int | None = Field(default=None, ge=0, le=1_000_000)
+    price_4k_cents: int | None = Field(default=None, ge=0, le=1_000_000)
     enabled: bool | None = None
 
 
@@ -186,7 +194,10 @@ async def admin_add_image_model(body: ImageModelBody) -> dict[str, Any]:
     label, model, key = body.label.strip(), body.model.strip(), body.key.strip()
     if not (label and model and key):
         raise HTTPException(400, "名称 / 模型 / Key 不能为空")
-    return {"items": await db.add_image_model(label=label, base=base, model=model, key=key, price_cents=body.price_cents)}
+    return {"items": await db.add_image_model(label=label, base=base, model=model, key=key,
+                                              price_cents=body.price_cents,
+                                              price_2k_cents=body.price_2k_cents,
+                                              price_4k_cents=body.price_4k_cents)}
 
 
 @router.patch("/api/admin/settings/image-models/{mid}", dependencies=[Depends(require_admin)])
@@ -201,6 +212,8 @@ async def admin_update_image_model(mid: str, body: ImageModelPatch) -> dict[str,
         model=body.model.strip() if body.model is not None else None,
         key=body.key.strip() if body.key else None,
         price_cents=body.price_cents,
+        price_2k_cents=body.price_2k_cents,
+        price_4k_cents=body.price_4k_cents,
         enabled=body.enabled,
     )}
 

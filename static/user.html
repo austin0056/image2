@@ -219,18 +219,25 @@
 
         <div class="panel-section">
           <div class="panel-title">输出参数</div>
-          <div class="panel-grid-2" style="grid-template-columns:1.5fr 1fr;">
+          <div class="panel-grid-2">
           <div class="panel-row">
-            <label>尺寸</label>
-            <select id="size">
-              <option value="auto">Auto · 让模型自选</option>
-              <option value="1024x1024" selected>1024 × 1024 · 正方 1:1</option>
-              <option value="1536x1024">1536 × 1024 · 横向 3:2</option>
-              <option value="1024x1536">1024 × 1536 · 竖向 2:3</option>
+            <label>分辨率</label>
+            <select id="tier">
+              <option value="1k" selected>1K · 标准</option>
+              <option value="2k">2K · 高清</option>
+              <option value="4k">4K · 超清</option>
             </select>
-            <div class="hint">仅这几种尺寸受模型支持；提示词里写的比例不影响输出，以此处为准。</div>
           </div>
           <div class="panel-row">
+            <label>比例</label>
+            <select id="aspect">
+              <option value="1:1" selected>正方 1:1</option>
+              <option value="3:2">横向 3:2</option>
+              <option value="2:3">竖向 2:3</option>
+            </select>
+          </div>
+          </div>
+          <div class="panel-row" style="margin-top:10px;">
             <label>质量</label>
             <select id="quality">
               <option value="high" selected>High · 高质量</option>
@@ -239,7 +246,7 @@
               <option value="auto">Auto</option>
             </select>
           </div>
-          </div>
+          <div class="hint">分辨率越高越清晰，单价按所选模型分档计价（1K/2K/4K）；以此处比例为准。</div>
         </div>
 
         <div class="sidebar-foot">
@@ -664,9 +671,16 @@ async function showApp(me) {
   await refreshHistory();
 }
 
-/* 图片模型选择 */
+/* 图片模型选择 + 分辨率(1K/2K/4K)分档计价 */
 let imageModels = [];
 let selectedImageModelId = "default";
+function currentTier() { const t = $("tier"); return t && t.value ? t.value : "1k"; }
+function priceForModel(m) {
+  if (!m) return 0;
+  const t = currentTier();
+  const p = (m.prices && m.prices[t] != null) ? m.prices[t] : m.price_cents;
+  return p || 0;
+}
 function renderImageModels() {
   const seg = $("img-model-seg"), sec = $("img-model-section");
   if (!seg || !sec) return;
@@ -674,10 +688,11 @@ function renderImageModels() {
   if (imageModels.length && !imageModels.some((m) => m.id === selectedImageModelId)) {
     selectedImageModelId = imageModels[0].id;
   }
-  // 少于 2 个模型无需选择器，但仍同步默认价格
+  // 少于 2 个模型无需选择器，但仍同步当前档位价格
   if (imageModels.length < 2) {
     sec.style.display = "none";
-    if (imageModels[0]) { selectedImageModelId = imageModels[0].id; $("price-img-pill").textContent = (imageModels[0].price_cents / 100).toFixed(2); }
+    if (imageModels[0]) selectedImageModelId = imageModels[0].id;
+    updateImgPrice();
     return;
   }
   sec.style.display = "";
@@ -687,7 +702,7 @@ function renderImageModels() {
     btn.type = "button";
     btn.className = "model-seg-btn" + (m.id === selectedImageModelId ? " active" : "");
     btn.dataset.id = m.id;
-    btn.innerHTML = `<div class="ms-label">${escapeHtml(m.label)}</div><div class="ms-price">¥${(m.price_cents / 100).toFixed(2)} / 张</div>`;
+    btn.innerHTML = `<div class="ms-label">${escapeHtml(m.label)}</div><div class="ms-price">¥${(priceForModel(m) / 100).toFixed(2)} / 张</div>`;
     btn.onclick = () => selectImageModel(m.id);
     seg.appendChild(btn);
   });
@@ -700,7 +715,8 @@ function selectImageModel(id) {
 }
 function updateImgPrice() {
   const m = imageModels.find((x) => x.id === selectedImageModelId) || imageModels[0];
-  if (m) $("price-img-pill").textContent = (m.price_cents / 100).toFixed(2);
+  const pill = $("price-img-pill");
+  if (m && pill) pill.textContent = (priceForModel(m) / 100).toFixed(2);
 }
 async function refreshMe() {
   try {
@@ -1235,7 +1251,8 @@ async function generate() {
   const fd = new FormData();
   fd.append("access_key", accessKey);
   fd.append("prompt", prompt);
-  fd.append("size", currentSize());
+  fd.append("tier", currentTier());
+  fd.append("aspect", ($("aspect") && $("aspect").value) || "1:1");
   fd.append("quality", $("quality").value);
   fd.append("model_id", selectedImageModelId);
   refFiles.forEach((f) => fd.append("refs", f));
@@ -1582,10 +1599,6 @@ function updateIconPriceLabel() {
     生成图标 <span class="price-pill">¥${yuan}</span>`;
 }
 
-function currentSize() {
-  return $("size").value;
-}
-
 /* ===================== 事件绑定 ===================== */
 // 登录
 $("login-btn").onclick = login;
@@ -1594,6 +1607,8 @@ $("logout").onclick = (e) => { e.preventDefault(); logout(); };
 
 // 生成
 $("generate-btn").onclick = generate;
+// 改变分辨率档位 → 价签 + 各模型按钮价格随档位刷新
+if ($("tier")) $("tier").addEventListener("change", renderImageModels);
 $("icon-generate-btn").onclick = generateIcon;
 $("cad-generate-btn").onclick = generateCad;
 $("chart-generate-btn").onclick = generateChart;

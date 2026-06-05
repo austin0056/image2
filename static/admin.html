@@ -136,8 +136,16 @@
           <input id="provider-key" type="password" placeholder="留空则不修改现有密钥" autocomplete="new-password" />
         </div>
         <div>
-          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">图片单价（分）</label>
+          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">1K 单价（分）</label>
           <input id="provider-price" type="number" min="0" max="1000000" step="1" placeholder="5" />
+        </div>
+        <div>
+          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">2K 单价（分）</label>
+          <input id="provider-price-2k" type="number" min="0" max="1000000" step="1" placeholder="留空=同 1K" />
+        </div>
+        <div>
+          <label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">4K 单价（分）</label>
+          <input id="provider-price-4k" type="number" min="0" max="1000000" step="1" placeholder="留空=同 1K" />
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:var(--s-4);flex-wrap:wrap;">
@@ -164,7 +172,9 @@
           <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">Base URL</label><input id="img-model-base" type="text" placeholder="https://api.bananarouter.com/v1" /></div>
           <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">模型</label><input id="img-model-model" type="text" placeholder="gemini-3.1-flash-image-preview" /></div>
           <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">API Key</label><input id="img-model-key" type="password" placeholder="sk-…" autocomplete="new-password" /></div>
-          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">单价（分）</label><input id="img-model-price" type="number" min="0" max="1000000" step="1" placeholder="30" /></div>
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">1K 单价（分）</label><input id="img-model-price" type="number" min="0" max="1000000" step="1" placeholder="30" /></div>
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">2K 单价（分）</label><input id="img-model-price-2k" type="number" min="0" max="1000000" step="1" placeholder="留空=同 1K" /></div>
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">4K 单价（分）</label><input id="img-model-price-4k" type="number" min="0" max="1000000" step="1" placeholder="留空=同 1K" /></div>
           <div><button class="btn primary" id="img-model-add" type="button">+ 添加模型</button></div>
         </div>
       </div>
@@ -401,11 +411,20 @@ async function refreshStats() {
   $("s-paid").textContent = fmtMoney(s.total_paid_cents || 0);
   $("s-paid-today").textContent = fmtMoney(s.today_paid_cents || 0);
 }
+function _optInt(id) {
+  const el = $(id); if (!el) return null;
+  const v = el.value.trim(); if (v === "") return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 async function refreshImageProviderSettings() {
   const s = await api("/api/admin/settings/image-provider");
   $("provider-base").value = s.upstream_base || "";
   $("provider-model").value = s.upstream_model || "";
   $("provider-price").value = String(s.price_cents ?? 5);
+  // 2K/4K 与 1K 相同则留空（默认=同 1K）
+  $("provider-price-2k").value = (s.price_2k_cents != null && s.price_2k_cents !== s.price_cents) ? String(s.price_2k_cents) : "";
+  $("provider-price-4k").value = (s.price_4k_cents != null && s.price_4k_cents !== s.price_cents) ? String(s.price_4k_cents) : "";
   $("provider-key").value = "";
   $("provider-key").placeholder = s.upstream_key_set
     ? `留空则保留现有密钥（${s.upstream_key_preview}）`
@@ -419,14 +438,16 @@ async function saveImageProviderSettings() {
   const upstream_model = $("provider-model").value.trim();
   const upstream_key = $("provider-key").value.trim();
   const price_cents = parseInt($("provider-price").value, 10);
+  const price_2k_cents = _optInt("provider-price-2k");
+  const price_4k_cents = _optInt("provider-price-4k");
   if (!upstream_base || !upstream_model) { toast("请填写 Base URL 和模型", "error"); return; }
-  if (!Number.isFinite(price_cents) || price_cents < 0) { toast("单价必须是非负整数", "error"); return; }
+  if (!Number.isFinite(price_cents) || price_cents < 0) { toast("1K 单价必须是非负整数", "error"); return; }
   const btn = $("save-provider");
   btn.disabled = true;
   try {
     await api("/api/admin/settings/image-provider", {
       method: "PATCH",
-      body: JSON.stringify({ upstream_base, upstream_model, upstream_key, price_cents }),
+      body: JSON.stringify({ upstream_base, upstream_model, upstream_key, price_cents, price_2k_cents, price_4k_cents }),
     });
     toast("图片 AI 提供商设置已保存", "success");
     await refreshImageProviderSettings();
@@ -492,12 +513,18 @@ async function deleteImageSource(id) {
 }
 
 // 用户可切换的图片模型
+function _fmtTierPrices(m) {
+  const p = m.prices || { "1k": m.price_cents, "2k": m.price_cents, "4k": m.price_cents };
+  const y = (c) => "¥" + ((c || 0) / 100).toFixed(2);
+  if (p["1k"] === p["2k"] && p["2k"] === p["4k"]) return `${y(p["1k"])}/张（各档同价）`;
+  return `1K ${y(p["1k"])} · 2K ${y(p["2k"])} · 4K ${y(p["4k"])}`;
+}
 function renderImageModels(items) {
   const list = $("img-model-list");
   const extras = items.filter((m) => !m.is_default);
   $("img-model-count").textContent = `${items.length} 个模型（${extras.length} 个额外）`;
   list.innerHTML = items.map((m) => {
-    const head = `${_esc(m.label)} · <span class="mono">${_esc(m.model)}</span> · ¥${(m.price_cents / 100).toFixed(2)}/张`;
+    const head = `${_esc(m.label)} · <span class="mono">${_esc(m.model)}</span> · ${_fmtTierPrices(m)}`;
     if (m.is_default) {
       return `<div style="display:flex;align-items:center;gap:12px;padding:9px 11px;border:1px solid var(--c-line);border-radius:var(--r-md);background:var(--c-surface);">
         <span class="dim" style="font-size:11px;border:1px solid var(--c-line);border-radius:999px;padding:2px 8px;white-space:nowrap;">默认</span>
@@ -525,12 +552,14 @@ async function addImageModel() {
   const label = $("img-model-label").value.trim(), base = $("img-model-base").value.trim();
   const model = $("img-model-model").value.trim(), key = $("img-model-key").value.trim();
   const price_cents = parseInt($("img-model-price").value, 10);
+  const price_2k_cents = _optInt("img-model-price-2k");
+  const price_4k_cents = _optInt("img-model-price-4k");
   if (!label || !base || !model || !key) { toast("请填写名称、Base、模型、Key", "error"); return; }
-  if (!Number.isFinite(price_cents) || price_cents < 0) { toast("单价必须是非负整数（分）", "error"); return; }
+  if (!Number.isFinite(price_cents) || price_cents < 0) { toast("1K 单价必须是非负整数（分）", "error"); return; }
   const btn = $("img-model-add"); btn.disabled = true;
   try {
-    renderImageModels((await api("/api/admin/settings/image-models", { method: "POST", body: JSON.stringify({ label, base, model, key, price_cents }) })).items || []);
-    ["img-model-label", "img-model-base", "img-model-model", "img-model-key", "img-model-price"].forEach((id) => $(id).value = "");
+    renderImageModels((await api("/api/admin/settings/image-models", { method: "POST", body: JSON.stringify({ label, base, model, key, price_cents, price_2k_cents, price_4k_cents }) })).items || []);
+    ["img-model-label", "img-model-base", "img-model-model", "img-model-key", "img-model-price", "img-model-price-2k", "img-model-price-4k"].forEach((id) => $(id).value = "");
     toast("已添加模型", "success");
   } catch (e) { toast("添加失败：" + e.message, "error"); }
   finally { btn.disabled = false; }

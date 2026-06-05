@@ -148,7 +148,46 @@ _IMAGE_PROVIDER_KEYS = {
     "key": "image_provider.key",
     "model": "image_provider.model",
     "price_cents": "image_provider.price_cents",
+    "price_2k_cents": "image_provider.price_2k_cents",
+    "price_4k_cents": "image_provider.price_4k_cents",
 }
+
+# 分辨率档位（1K/2K/4K）：用户可选，按档分开计价；上游原生出对应尺寸。
+IMAGE_TIERS = ("1k", "2k", "4k")
+_TIER_BASE = {"1k": 1024, "2k": 2048, "4k": 4096}
+_TIER_ASPECT = {"1:1": (1, 1), "3:2": (3, 2), "2:3": (2, 3)}
+
+
+def normalize_tier(tier: str | None) -> str:
+    t = (tier or "1k").lower()
+    return t if t in IMAGE_TIERS else "1k"
+
+
+def tier_size(tier: str | None, aspect: str | None = "1:1") -> str:
+    """档位 + 比例 → 上游尺寸字符串（如 2048x2048 / 3072x2048 / 2048x3072）。"""
+    base = _TIER_BASE.get(normalize_tier(tier), 1024)
+    aw, ah = _TIER_ASPECT.get(aspect or "1:1", (1, 1))
+    if aw == ah:
+        return f"{base}x{base}"
+    if aw > ah:  # 3:2 横
+        return f"{base + base // 2}x{base}"
+    return f"{base}x{base + base // 2}"  # 2:3 竖
+
+
+def _coerce_cents(v: Any, fallback: int = 0) -> int:
+    try:
+        return max(0, int(v))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _tier_prices_of(m: dict[str, Any], *, base_key: str = "price_cents") -> dict[str, int]:
+    """从模型/提供商配置取三档价；2K/4K 未设则回退到 1K 价（兼容旧配置）。"""
+    p1 = _coerce_cents(m.get(base_key, 0))
+    raw2, raw4 = m.get("price_2k_cents"), m.get("price_4k_cents")
+    p2 = _coerce_cents(raw2, p1) if raw2 not in (None, "") else p1
+    p4 = _coerce_cents(raw4, p1) if raw4 not in (None, "") else p1
+    return {"1k": p1, "2k": p2, "4k": p4}
 
 
 def _mask_secret(value: str) -> str:
@@ -173,6 +212,13 @@ async def get_image_provider_settings(*, reveal_key: bool = True) -> dict[str, A
     except (TypeError, ValueError):
         price_cents = settings.price_cents
     price_cents = max(0, price_cents)
+
+    def _opt_cents(name: str, fallback: int) -> int:
+        v = values.get(_IMAGE_PROVIDER_KEYS[name])
+        return _coerce_cents(v, fallback) if v not in (None, "") else fallback
+
+    price_2k_cents = _opt_cents("price_2k_cents", price_cents)
+    price_4k_cents = _opt_cents("price_4k_cents", price_cents)
     return {
         "upstream_base": (values.get(_IMAGE_PROVIDER_KEYS["base"], settings.upstream_base) or settings.upstream_base).rstrip("/"),
         "upstream_key": raw_key if reveal_key else "",
@@ -180,6 +226,9 @@ async def get_image_provider_settings(*, reveal_key: bool = True) -> dict[str, A
         "upstream_key_preview": _mask_secret(raw_key),
         "upstream_model": values.get(_IMAGE_PROVIDER_KEYS["model"], settings.upstream_model) or settings.upstream_model,
         "price_cents": price_cents,
+        "price_2k_cents": price_2k_cents,
+        "price_4k_cents": price_4k_cents,
+        "prices": {"1k": price_cents, "2k": price_2k_cents, "4k": price_4k_cents},
     }
 
 
@@ -188,12 +237,17 @@ async def update_image_provider_settings(
     upstream_base: str,
     upstream_model: str,
     price_cents: int,
+    price_2k_cents: int | None = None,
+    price_4k_cents: int | None = None,
     upstream_key: str | None = None,
 ) -> dict[str, Any]:
+    base_price = max(0, int(price_cents))
     updates = {
         _IMAGE_PROVIDER_KEYS["base"]: upstream_base.rstrip("/"),
         _IMAGE_PROVIDER_KEYS["model"]: upstream_model,
-        _IMAGE_PROVIDER_KEYS["price_cents"]: str(max(0, int(price_cents))),
+        _IMAGE_PROVIDER_KEYS["price_cents"]: str(base_price),
+        _IMAGE_PROVIDER_KEYS["price_2k_cents"]: str(_coerce_cents(price_2k_cents, base_price) if price_2k_cents is not None else base_price),
+        _IMAGE_PROVIDER_KEYS["price_4k_cents"]: str(_coerce_cents(price_4k_cents, base_price) if price_4k_cents is not None else base_price),
     }
     if upstream_key is not None:
         updates[_IMAGE_PROVIDER_KEYS["key"]] = upstream_key
@@ -347,18 +401,17 @@ async def _write_image_models_raw(arr: list[dict[str, Any]]) -> None:
 
 
 def _price_of(m: dict[str, Any]) -> int:
-    try:
-        return max(0, int(m.get("price_cents", 0)))
-    except (TypeError, ValueError):
-        return 0
+    return _coerce_cents(m.get("price_cents", 0))
 
 
 def _shape_image_model(m: dict[str, Any], *, reveal_key: bool) -> dict[str, Any]:
     k = m.get("key") or ""
+    prices = _tier_prices_of(m)
     return {
         "id": m.get("id", ""), "label": m.get("label") or (m.get("model") or ""),
         "base": (m.get("base") or "").rstrip("/"), "model": m.get("model") or "",
-        "price_cents": _price_of(m), "enabled": bool(m.get("enabled", True)), "is_default": False,
+        "price_cents": prices["1k"], "price_2k_cents": prices["2k"], "price_4k_cents": prices["4k"],
+        "prices": prices, "enabled": bool(m.get("enabled", True)), "is_default": False,
         "key": k if reveal_key else "", "key_set": bool(k), "key_preview": _mask_secret(k),
     }
 
@@ -371,7 +424,9 @@ async def get_image_models(*, reveal_key: bool = False, only_enabled: bool = Fal
         out.append({
             "id": "default", "label": _default_model_label(main["upstream_model"]),
             "base": main["upstream_base"], "model": main["upstream_model"],
-            "price_cents": main["price_cents"], "enabled": True, "is_default": True,
+            "price_cents": main["price_cents"], "price_2k_cents": main["price_2k_cents"],
+            "price_4k_cents": main["price_4k_cents"], "prices": main["prices"],
+            "enabled": True, "is_default": True,
             "key": main["upstream_key"] if reveal_key else "",
             "key_set": main["upstream_key_set"], "key_preview": main["upstream_key_preview"],
         })
@@ -383,17 +438,23 @@ async def get_image_models(*, reveal_key: bool = False, only_enabled: bool = Fal
     return out
 
 
-async def add_image_model(*, label: str, base: str, model: str, key: str, price_cents: int) -> list[dict[str, Any]]:
+async def add_image_model(*, label: str, base: str, model: str, key: str, price_cents: int,
+                          price_2k_cents: int | None = None, price_4k_cents: int | None = None) -> list[dict[str, Any]]:
     arr = await _read_image_models_raw()
+    base_price = max(0, int(price_cents))
     arr.append({"id": secrets.token_hex(6), "label": label, "base": base.rstrip("/"),
-                "model": model, "key": key, "price_cents": max(0, int(price_cents)), "enabled": True})
+                "model": model, "key": key, "price_cents": base_price,
+                "price_2k_cents": _coerce_cents(price_2k_cents, base_price) if price_2k_cents is not None else base_price,
+                "price_4k_cents": _coerce_cents(price_4k_cents, base_price) if price_4k_cents is not None else base_price,
+                "enabled": True})
     await _write_image_models_raw(arr)
     return await get_image_models(reveal_key=False)
 
 
 async def update_image_model(mid: str, *, label: str | None = None, base: str | None = None,
                              model: str | None = None, key: str | None = None,
-                             price_cents: int | None = None, enabled: bool | None = None) -> list[dict[str, Any]]:
+                             price_cents: int | None = None, price_2k_cents: int | None = None,
+                             price_4k_cents: int | None = None, enabled: bool | None = None) -> list[dict[str, Any]]:
     arr = await _read_image_models_raw()
     for m in arr:
         if m.get("id") == mid:
@@ -407,6 +468,10 @@ async def update_image_model(mid: str, *, label: str | None = None, base: str | 
                 m["key"] = key
             if price_cents is not None:
                 m["price_cents"] = max(0, int(price_cents))
+            if price_2k_cents is not None:
+                m["price_2k_cents"] = max(0, int(price_2k_cents))
+            if price_4k_cents is not None:
+                m["price_4k_cents"] = max(0, int(price_4k_cents))
             if enabled is not None:
                 m["enabled"] = bool(enabled)
             break
@@ -420,21 +485,23 @@ async def delete_image_model(mid: str) -> list[dict[str, Any]]:
     return await get_image_models(reveal_key=False)
 
 
-async def resolve_image_model(model_id: str | None) -> dict[str, Any] | None:
-    """解析所选模型 → {id,label,price_cents,sources(含真实 key)}；不可用返回 None。"""
+async def resolve_image_model(model_id: str | None, tier: str | None = "1k") -> dict[str, Any] | None:
+    """解析所选模型 + 分辨率档位 → {id,label,tier,price_cents(该档价),sources(含真实 key)}；不可用返回 None。"""
+    t = normalize_tier(tier)
     if not model_id or model_id == "default":
         main = await get_image_provider_settings(reveal_key=True)
         sources = await get_image_pool()
         if not sources:
             return None
         return {"id": "default", "label": _default_model_label(main["upstream_model"]),
-                "price_cents": main["price_cents"], "sources": sources}
+                "tier": t, "price_cents": main["prices"][t], "sources": sources}
     for m in await _read_image_models_raw():
         if m.get("id") == model_id and bool(m.get("enabled", True)):
             base, key, model = (m.get("base") or "").rstrip("/"), m.get("key") or "", m.get("model") or ""
             if not (base and key and model):
                 return None
-            return {"id": model_id, "label": m.get("label") or model, "price_cents": _price_of(m),
+            return {"id": model_id, "label": m.get("label") or model, "tier": t,
+                    "price_cents": _tier_prices_of(m)[t],
                     "sources": [{"base": base, "key": key, "model": model}]}
     return None
 

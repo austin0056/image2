@@ -25,17 +25,7 @@ MAX_REFS = 6  # 单次最多参考图张数
 
 # gpt-image 系列只支持这几种尺寸（外加 auto）。实际产出尺寸严格等于这里的请求值，
 # 所以服务端只允许白名单内的值；提示词里写的比例不影响输出。
-ALLOWED_SIZES = {"auto", "1024x1024", "1536x1024", "1024x1536"}
-
-
-def _validate_size(size: str) -> str:
-    s = size.strip().lower()
-    if s not in ALLOWED_SIZES:
-        raise HTTPException(
-            400,
-            "尺寸不支持，仅允许 auto / 1024x1024 / 1536x1024 / 1024x1536",
-        )
-    return s
+ALLOWED_ASPECT = {"1:1", "3:2", "2:3"}
 
 
 class KeyBody(BaseModel):
@@ -52,7 +42,8 @@ async def api_me(body: KeyBody) -> dict[str, Any]:
         "balance_cents": user["balance_cents"],
         "price_cents": image_provider["price_cents"],  # 默认模型单价（向后兼容）
         "image_models": [
-            {"id": m["id"], "label": m["label"], "price_cents": m["price_cents"], "is_default": m["is_default"]}
+            {"id": m["id"], "label": m["label"], "price_cents": m["price_cents"],
+             "prices": m["prices"], "is_default": m["is_default"]}
             for m in models
         ],
         "price_recraft_cents": settings.price_recraft_cents,
@@ -94,7 +85,8 @@ def _ref_keys_list(ref_keys: Any) -> list[str]:
 async def api_generate(
     access_key: str = Form(...),
     prompt: str = Form(...),
-    size: str = Form("1024x1024"),
+    tier: str = Form("1k"),       # 分辨率档位 1k/2k/4k（分开计价）
+    aspect: str = Form("1:1"),    # 比例 1:1 / 3:2 横 / 2:3 竖
     quality: str = Form("high"),
     model_id: str = Form("default"),  # 用户所选图片模型（默认主模型）
     refs: list[UploadFile] = File(default=[]),
@@ -104,13 +96,16 @@ async def api_generate(
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(400, "prompt 不能为空")
-    size = _validate_size(size)
+    tier = db.normalize_tier(tier)
+    if aspect not in ALLOWED_ASPECT:
+        aspect = "1:1"
+    size = db.tier_size(tier, aspect)  # 档位+比例 → 上游尺寸（如 2048x2048）
     if quality not in ALLOWED_QUALITY:
         raise HTTPException(400, f"quality 必须是 {sorted(ALLOWED_QUALITY)} 之一")
-    resolved = await db.resolve_image_model(model_id)
+    resolved = await db.resolve_image_model(model_id, tier)
     if not resolved or not resolved.get("sources"):
         raise HTTPException(503, "所选图片模型未配置或不可用，请联系管理员")
-    cost_cents = resolved["price_cents"]
+    cost_cents = resolved["price_cents"]  # 该模型 + 该档位的单价
     sources = resolved["sources"]
 
     # 收集参考图：新字段 refs(多图) + 兼容旧字段 ref(单图)
