@@ -146,6 +146,29 @@
         <span class="dim" style="font-size:12px;">环境变量仅作为首次初始化/兜底默认值。</span>
       </div>
 
+      <!-- 用户可切换的图片模型 -->
+      <div style="margin-top:18px;border-top:1px solid var(--c-line);padding-top:16px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <strong style="font-size:13.5px;">用户可切换的图片模型</strong>
+            <div class="dim" style="font-size:12px;margin-top:2px;max-width:700px;">
+              用户在生图页可在这些模型之间切换。上面的「主提供商」自动作为**默认模型**；在这里再加几个（如
+              Banana Pro / Gemini），每个可设**独立单价**。Gemini 系图片模型会自动走 /chat/completions。
+            </div>
+          </div>
+          <span class="dim" id="img-model-count" style="font-size:12px;white-space:nowrap;">—</span>
+        </div>
+        <div id="img-model-list" style="margin-top:12px;display:grid;gap:8px;"></div>
+        <div class="kv-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;margin-top:12px;">
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">显示名称</label><input id="img-model-label" type="text" placeholder="Banana Pro" /></div>
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">Base URL</label><input id="img-model-base" type="text" placeholder="https://api.bananarouter.com/v1" /></div>
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">模型</label><input id="img-model-model" type="text" placeholder="gemini-3.1-flash-image-preview" /></div>
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">API Key</label><input id="img-model-key" type="password" placeholder="sk-…" autocomplete="new-password" /></div>
+          <div><label class="muted" style="display:block;font-size:12px;margin-bottom:6px;">单价（分）</label><input id="img-model-price" type="number" min="0" max="1000000" step="1" placeholder="30" /></div>
+          <div><button class="btn primary" id="img-model-add" type="button">+ 添加模型</button></div>
+        </div>
+      </div>
+
       <!-- 图片生成 · 额外来源池（负载均衡 / 抗限流） -->
       <div style="margin-top:18px;border-top:1px solid var(--c-line);padding-top:16px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -343,7 +366,7 @@ function showSection(sec) {
     b.classList.toggle("active", b.dataset.sec === sec));
   // 切到某模块时刷新其数据，保持最新
   if (sec === "overview") refreshStats();
-  else if (sec === "provider") { refreshImageProviderSettings(); loadImageSources(); loadAllProviders(); }
+  else if (sec === "provider") { refreshImageProviderSettings(); loadImageModels(); loadImageSources(); loadAllProviders(); }
   else if (sec === "users") refreshUsers();
   else if (sec === "generations") refreshGenerations();
   else if (sec === "payments") refreshPayments();
@@ -465,6 +488,60 @@ async function toggleImageSource(id, enabled) {
 async function deleteImageSource(id) {
   if (!confirm("删除这个来源？")) return;
   try { renderImageSources((await api(`/api/admin/settings/image-sources/${id}`, { method: "DELETE" })).items || []); toast("已删除", "success"); }
+  catch (e) { toast("删除失败：" + e.message, "error"); }
+}
+
+// 用户可切换的图片模型
+function renderImageModels(items) {
+  const list = $("img-model-list");
+  const extras = items.filter((m) => !m.is_default);
+  $("img-model-count").textContent = `${items.length} 个模型（${extras.length} 个额外）`;
+  list.innerHTML = items.map((m) => {
+    const head = `${_esc(m.label)} · <span class="mono">${_esc(m.model)}</span> · ¥${(m.price_cents / 100).toFixed(2)}/张`;
+    if (m.is_default) {
+      return `<div style="display:flex;align-items:center;gap:12px;padding:9px 11px;border:1px solid var(--c-line);border-radius:var(--r-md);background:var(--c-surface);">
+        <span class="dim" style="font-size:11px;border:1px solid var(--c-line);border-radius:999px;padding:2px 8px;white-space:nowrap;">默认</span>
+        <div style="flex:1;min-width:0;"><div style="font-size:12.5px;color:var(--c-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${head}</div>
+        <div class="dim" style="font-size:11px;">在上方「主提供商」表单里配置</div></div></div>`;
+    }
+    return `<div class="img-model-row" data-id="${_esc(m.id)}" style="display:flex;align-items:center;gap:12px;padding:9px 11px;border:1px solid var(--c-line);border-radius:var(--r-md);background:var(--c-surface);${m.enabled ? "" : "opacity:.55;"}">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="img-model-enabled" ${m.enabled ? "checked" : ""}/> 启用</label>
+      <div style="flex:1;min-width:0;"><div style="font-size:12.5px;color:var(--c-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${head}</div>
+      <div class="dim" style="font-size:11px;">${_esc(m.base)} · Key ${m.key_set ? _esc(m.key_preview) : "未设置"}</div></div>
+      <button class="btn ghost small img-model-del" type="button">删除</button>
+    </div>`;
+  }).join("");
+  list.querySelectorAll(".img-model-row").forEach((row) => {
+    const id = row.dataset.id;
+    row.querySelector(".img-model-enabled").onchange = (e) => toggleImageModel(id, e.target.checked);
+    row.querySelector(".img-model-del").onclick = () => deleteImageModel(id);
+  });
+}
+async function loadImageModels() {
+  try { renderImageModels((await api("/api/admin/settings/image-models")).items || []); }
+  catch (e) { $("img-model-list").innerHTML = `<div class="dim" style="font-size:12px;color:var(--c-danger);">加载失败：${_esc(e.message)}</div>`; }
+}
+async function addImageModel() {
+  const label = $("img-model-label").value.trim(), base = $("img-model-base").value.trim();
+  const model = $("img-model-model").value.trim(), key = $("img-model-key").value.trim();
+  const price_cents = parseInt($("img-model-price").value, 10);
+  if (!label || !base || !model || !key) { toast("请填写名称、Base、模型、Key", "error"); return; }
+  if (!Number.isFinite(price_cents) || price_cents < 0) { toast("单价必须是非负整数（分）", "error"); return; }
+  const btn = $("img-model-add"); btn.disabled = true;
+  try {
+    renderImageModels((await api("/api/admin/settings/image-models", { method: "POST", body: JSON.stringify({ label, base, model, key, price_cents }) })).items || []);
+    ["img-model-label", "img-model-base", "img-model-model", "img-model-key", "img-model-price"].forEach((id) => $(id).value = "");
+    toast("已添加模型", "success");
+  } catch (e) { toast("添加失败：" + e.message, "error"); }
+  finally { btn.disabled = false; }
+}
+async function toggleImageModel(id, enabled) {
+  try { renderImageModels((await api(`/api/admin/settings/image-models/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) })).items || []); }
+  catch (e) { toast("更新失败：" + e.message, "error"); loadImageModels(); }
+}
+async function deleteImageModel(id) {
+  if (!confirm("删除这个图片模型？")) return;
+  try { renderImageModels((await api(`/api/admin/settings/image-models/${id}`, { method: "DELETE" })).items || []); toast("已删除", "success"); }
   catch (e) { toast("删除失败：" + e.message, "error"); }
 }
 
@@ -697,6 +774,8 @@ $("pay-filter-key").addEventListener("keydown", (e) => { if (e.key === "Enter") 
 $("save-provider").onclick = saveImageProviderSettings;
 $("reload-provider").onclick = refreshImageProviderSettings;
 $("img-src-add").onclick = addImageSource;
+$("img-model-add").onclick = addImageModel;
+$("img-model-price").addEventListener("keydown", (e) => { if (e.key === "Enter") addImageModel(); });
 $("img-src-key").addEventListener("keydown", (e) => { if (e.key === "Enter") addImageSource(); });
 document.querySelectorAll(".prov-save").forEach((b) => {
   b.onclick = () => saveProvider(b.closest(".prov-block").dataset.prov);

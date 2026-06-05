@@ -154,6 +154,62 @@ async def admin_delete_image_source(sid: str) -> dict[str, Any]:
     return {"items": await db.delete_image_extra_source(sid)}
 
 
+# ----- 用户可切换的图片模型（GPT-Image-2 / Banana Pro 等） -----
+
+class ImageModelBody(BaseModel):
+    label: str = Field(..., min_length=1, max_length=60)
+    base: str = Field(..., min_length=1, max_length=500)
+    model: str = Field(..., min_length=1, max_length=200)
+    key: str = Field(..., min_length=1, max_length=5000)
+    price_cents: int = Field(..., ge=0, le=1_000_000)
+
+
+class ImageModelPatch(BaseModel):
+    label: str | None = Field(default=None, max_length=60)
+    base: str | None = Field(default=None, max_length=500)
+    model: str | None = Field(default=None, max_length=200)
+    key: str | None = Field(default=None, max_length=5000)  # 空=保留
+    price_cents: int | None = Field(default=None, ge=0, le=1_000_000)
+    enabled: bool | None = None
+
+
+@router.get("/api/admin/settings/image-models", dependencies=[Depends(require_admin)])
+async def admin_get_image_models() -> dict[str, Any]:
+    return {"items": await db.get_image_models(reveal_key=False)}
+
+
+@router.post("/api/admin/settings/image-models", dependencies=[Depends(require_admin)])
+async def admin_add_image_model(body: ImageModelBody) -> dict[str, Any]:
+    base = body.base.strip().rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        raise HTTPException(400, "API Base URL 必须以 http:// 或 https:// 开头")
+    label, model, key = body.label.strip(), body.model.strip(), body.key.strip()
+    if not (label and model and key):
+        raise HTTPException(400, "名称 / 模型 / Key 不能为空")
+    return {"items": await db.add_image_model(label=label, base=base, model=model, key=key, price_cents=body.price_cents)}
+
+
+@router.patch("/api/admin/settings/image-models/{mid}", dependencies=[Depends(require_admin)])
+async def admin_update_image_model(mid: str, body: ImageModelPatch) -> dict[str, Any]:
+    base = body.base.strip().rstrip("/") if body.base is not None else None
+    if base and not base.startswith(("http://", "https://")):
+        raise HTTPException(400, "API Base URL 必须以 http:// 或 https:// 开头")
+    return {"items": await db.update_image_model(
+        mid,
+        label=body.label.strip() if body.label is not None else None,
+        base=base,
+        model=body.model.strip() if body.model is not None else None,
+        key=body.key.strip() if body.key else None,
+        price_cents=body.price_cents,
+        enabled=body.enabled,
+    )}
+
+
+@router.delete("/api/admin/settings/image-models/{mid}", dependencies=[Depends(require_admin)])
+async def admin_delete_image_model(mid: str) -> dict[str, Any]:
+    return {"items": await db.delete_image_model(mid)}
+
+
 @router.get("/api/admin/settings/provider/{name}", dependencies=[Depends(require_admin)])
 async def admin_get_provider(name: str) -> dict[str, Any]:
     if name not in db.PROVIDER_NAMES:

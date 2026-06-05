@@ -307,6 +307,138 @@ async def get_image_pool() -> list[dict[str, str]]:
     return out
 
 
+# ----- 用户可切换的图片模型（如 GPT-Image-2 / Banana Pro 等） -----
+# 默认模型 = 主图片提供商(image_provider.*)，含其抗限流来源池；额外可选模型存
+# image_provider.models（JSON: [{id,label,base,key,model,price_cents,enabled}]）。
+
+_IMAGE_MODELS_KEY = "image_provider.models"
+_DEFAULT_LABELS = (("gpt-image", "GPT-Image-2"), ("dall-e", "DALL·E"),
+                   ("gemini", "Gemini"), ("flux", "FLUX"), ("nano-banana", "Nano Banana"))
+
+
+def _default_model_label(model: str) -> str:
+    m = (model or "").lower()
+    for k, lbl in _DEFAULT_LABELS:
+        if k in m:
+            return lbl
+    return model or "默认模型"
+
+
+async def _read_image_models_raw() -> list[dict[str, Any]]:
+    async with pool().acquire() as con:
+        row = await con.fetchrow("SELECT value FROM app_settings WHERE key=$1", _IMAGE_MODELS_KEY)
+    raw = row["value"] if row else ""
+    if not raw:
+        return []
+    try:
+        arr = json.loads(raw)
+        return [m for m in arr if isinstance(m, dict)] if isinstance(arr, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+async def _write_image_models_raw(arr: list[dict[str, Any]]) -> None:
+    async with pool().acquire() as con:
+        await con.execute(
+            """INSERT INTO app_settings(key, value, updated_at) VALUES($1, $2, now())
+               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
+            _IMAGE_MODELS_KEY, json.dumps(arr, ensure_ascii=False),
+        )
+
+
+def _price_of(m: dict[str, Any]) -> int:
+    try:
+        return max(0, int(m.get("price_cents", 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _shape_image_model(m: dict[str, Any], *, reveal_key: bool) -> dict[str, Any]:
+    k = m.get("key") or ""
+    return {
+        "id": m.get("id", ""), "label": m.get("label") or (m.get("model") or ""),
+        "base": (m.get("base") or "").rstrip("/"), "model": m.get("model") or "",
+        "price_cents": _price_of(m), "enabled": bool(m.get("enabled", True)), "is_default": False,
+        "key": k if reveal_key else "", "key_set": bool(k), "key_preview": _mask_secret(k),
+    }
+
+
+async def get_image_models(*, reveal_key: bool = False, only_enabled: bool = False) -> list[dict[str, Any]]:
+    """用户可选图片模型：默认模型(主提供商) + 额外模型。"""
+    out: list[dict[str, Any]] = []
+    main = await get_image_provider_settings(reveal_key=reveal_key)
+    if main["upstream_base"] and main["upstream_model"]:
+        out.append({
+            "id": "default", "label": _default_model_label(main["upstream_model"]),
+            "base": main["upstream_base"], "model": main["upstream_model"],
+            "price_cents": main["price_cents"], "enabled": True, "is_default": True,
+            "key": main["upstream_key"] if reveal_key else "",
+            "key_set": main["upstream_key_set"], "key_preview": main["upstream_key_preview"],
+        })
+    for m in await _read_image_models_raw():
+        sm = _shape_image_model(m, reveal_key=reveal_key)
+        if only_enabled and not sm["enabled"]:
+            continue
+        out.append(sm)
+    return out
+
+
+async def add_image_model(*, label: str, base: str, model: str, key: str, price_cents: int) -> list[dict[str, Any]]:
+    arr = await _read_image_models_raw()
+    arr.append({"id": secrets.token_hex(6), "label": label, "base": base.rstrip("/"),
+                "model": model, "key": key, "price_cents": max(0, int(price_cents)), "enabled": True})
+    await _write_image_models_raw(arr)
+    return await get_image_models(reveal_key=False)
+
+
+async def update_image_model(mid: str, *, label: str | None = None, base: str | None = None,
+                             model: str | None = None, key: str | None = None,
+                             price_cents: int | None = None, enabled: bool | None = None) -> list[dict[str, Any]]:
+    arr = await _read_image_models_raw()
+    for m in arr:
+        if m.get("id") == mid:
+            if label is not None:
+                m["label"] = label
+            if base is not None:
+                m["base"] = base.rstrip("/")
+            if model is not None:
+                m["model"] = model
+            if key:
+                m["key"] = key
+            if price_cents is not None:
+                m["price_cents"] = max(0, int(price_cents))
+            if enabled is not None:
+                m["enabled"] = bool(enabled)
+            break
+    await _write_image_models_raw(arr)
+    return await get_image_models(reveal_key=False)
+
+
+async def delete_image_model(mid: str) -> list[dict[str, Any]]:
+    arr = [m for m in await _read_image_models_raw() if m.get("id") != mid]
+    await _write_image_models_raw(arr)
+    return await get_image_models(reveal_key=False)
+
+
+async def resolve_image_model(model_id: str | None) -> dict[str, Any] | None:
+    """解析所选模型 → {id,label,price_cents,sources(含真实 key)}；不可用返回 None。"""
+    if not model_id or model_id == "default":
+        main = await get_image_provider_settings(reveal_key=True)
+        sources = await get_image_pool()
+        if not sources:
+            return None
+        return {"id": "default", "label": _default_model_label(main["upstream_model"]),
+                "price_cents": main["price_cents"], "sources": sources}
+    for m in await _read_image_models_raw():
+        if m.get("id") == model_id and bool(m.get("enabled", True)):
+            base, key, model = (m.get("base") or "").rstrip("/"), m.get("key") or "", m.get("model") or ""
+            if not (base and key and model):
+                return None
+            return {"id": model_id, "label": m.get("label") or model, "price_cents": _price_of(m),
+                    "sources": [{"base": base, "key": key, "model": model}]}
+    return None
+
+
 # ----- 通用上游提供商设置（claude / recraft / chart） -----
 
 def _PROVIDER_DEFAULTS() -> dict[str, dict[str, str]]:

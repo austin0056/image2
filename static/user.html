@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605g" />
+<link rel="stylesheet" href="/static/app.css?v=20260605h" />
 <!-- 文字转 CAD：浏览器端 3D 预览。自托管 three.js + STLLoader + OrbitControls（拖拽旋转/滚轮缩放/右键平移），
      渲染 STL（纯三角面，无 glTF 外链/压缩解码器之类的坑），国内必达、最稳。 -->
 <script type="importmap">
@@ -194,6 +194,11 @@
 
       <!-- =============== Pane: 生图 =============== -->
       <div id="pane-image" class="tab-pane">
+
+        <div class="panel-section" id="img-model-section" style="display:none;">
+          <div class="panel-title">图片模型</div>
+          <div class="model-seg" id="img-model-seg"></div>
+        </div>
 
         <div class="panel-section">
           <div class="panel-title">提示词</div>
@@ -647,6 +652,8 @@ async function showApp(me) {
   $("balance").textContent = fmtMoney(me.balance_cents);
   $("price").textContent = (me.price_cents / 100).toFixed(2);
   $("price-img-pill").textContent = (me.price_cents / 100).toFixed(2);
+  imageModels = me.image_models || [];
+  renderImageModels();
   priceClaudeCents = me.price_cents || 5;
   priceRecraftCents = me.price_recraft_cents || 300;
   priceCadCents = me.price_cad_cents || 1000;
@@ -655,6 +662,45 @@ async function showApp(me) {
   $("price-chart-pill").textContent = (priceChartCents / 100).toFixed(2);
   updateIconPriceLabel();
   await refreshHistory();
+}
+
+/* 图片模型选择 */
+let imageModels = [];
+let selectedImageModelId = "default";
+function renderImageModels() {
+  const seg = $("img-model-seg"), sec = $("img-model-section");
+  if (!seg || !sec) return;
+  // 当前选中的模型不在列表里 → 回落第一个
+  if (imageModels.length && !imageModels.some((m) => m.id === selectedImageModelId)) {
+    selectedImageModelId = imageModels[0].id;
+  }
+  // 少于 2 个模型无需选择器，但仍同步默认价格
+  if (imageModels.length < 2) {
+    sec.style.display = "none";
+    if (imageModels[0]) { selectedImageModelId = imageModels[0].id; $("price-img-pill").textContent = (imageModels[0].price_cents / 100).toFixed(2); }
+    return;
+  }
+  sec.style.display = "";
+  seg.innerHTML = "";
+  imageModels.forEach((m) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "model-seg-btn" + (m.id === selectedImageModelId ? " active" : "");
+    btn.dataset.id = m.id;
+    btn.innerHTML = `<div class="ms-label">${escapeHtml(m.label)}</div><div class="ms-price">¥${(m.price_cents / 100).toFixed(2)} / 张</div>`;
+    btn.onclick = () => selectImageModel(m.id);
+    seg.appendChild(btn);
+  });
+  updateImgPrice();
+}
+function selectImageModel(id) {
+  selectedImageModelId = id;
+  document.querySelectorAll("#img-model-seg .model-seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
+  updateImgPrice();
+}
+function updateImgPrice() {
+  const m = imageModels.find((x) => x.id === selectedImageModelId) || imageModels[0];
+  if (m) $("price-img-pill").textContent = (m.price_cents / 100).toFixed(2);
 }
 async function refreshMe() {
   try {
@@ -1191,6 +1237,7 @@ async function generate() {
   fd.append("prompt", prompt);
   fd.append("size", currentSize());
   fd.append("quality", $("quality").value);
+  fd.append("model_id", selectedImageModelId);
   refFiles.forEach((f) => fd.append("refs", f));
 
   const btn = $("generate-btn");

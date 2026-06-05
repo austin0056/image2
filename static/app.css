@@ -573,6 +573,20 @@ input[type="range"] {
   min-height: 14px;
 }
 
+/* 图片模型分段选择器 */
+.model-seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.model-seg-btn {
+  flex: 1 1 120px; min-width: 110px; padding: 8px 12px;
+  border: 1.5px solid var(--c-line-strong); border-radius: var(--r-md);
+  background: var(--c-surface); cursor: pointer; text-align: left;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.model-seg-btn:hover { border-color: var(--c-text-faint); }
+.model-seg-btn.active { border-color: var(--c-accent); background: var(--c-accent-soft); }
+.model-seg-btn .ms-label { font-size: 13px; font-weight: 600; color: var(--c-text); }
+.model-seg-btn.active .ms-label { color: var(--c-accent); }
+.model-seg-btn .ms-price { font-size: 11px; color: var(--c-text-mute); margin-top: 2px; font-family: var(--font-mono); }
+
 /* ============================================================
    Canvas · 中央画布
    ============================================================ */

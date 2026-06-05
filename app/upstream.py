@@ -237,8 +237,10 @@ async def _post_image(make_request, decode, *, label: str, sources: list[dict[st
     raise UpstreamError(f"{label} {last_status}: {last_err}")
 
 
-async def generate_image(prompt: str, size: str, quality: str = "auto") -> bytes:
-    sources = await db.get_image_pool()
+async def generate_image(prompt: str, size: str, quality: str = "auto",
+                         *, sources: list[dict[str, str]] | None = None) -> bytes:
+    if sources is None:
+        sources = await db.get_image_pool()
     if not sources:
         raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -268,10 +270,12 @@ def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes
     ]
 
 
-async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str = "auto") -> bytes:
+async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str = "auto",
+                     *, sources: list[dict[str, str]] | None = None) -> bytes:
     if not ref_pngs:
         raise UpstreamError("缺少参考图")
-    sources = await db.get_image_pool()
+    if sources is None:
+        sources = await db.get_image_pool()
     if not sources:
         raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

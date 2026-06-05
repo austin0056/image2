@@ -46,10 +46,15 @@ class KeyBody(BaseModel):
 async def api_me(body: KeyBody) -> dict[str, Any]:
     user = await require_user(body.access_key)
     image_provider = await db.get_image_provider_settings(reveal_key=False)
+    models = await db.get_image_models(reveal_key=False, only_enabled=True)
     return {
         "name": user["name"],
         "balance_cents": user["balance_cents"],
-        "price_cents": image_provider["price_cents"],
+        "price_cents": image_provider["price_cents"],  # 默认模型单价（向后兼容）
+        "image_models": [
+            {"id": m["id"], "label": m["label"], "price_cents": m["price_cents"], "is_default": m["is_default"]}
+            for m in models
+        ],
         "price_recraft_cents": settings.price_recraft_cents,
         "price_cad_cents": settings.price_cad_cents,
         "price_chart_cents": settings.price_chart_cents,
@@ -91,6 +96,7 @@ async def api_generate(
     prompt: str = Form(...),
     size: str = Form("1024x1024"),
     quality: str = Form("high"),
+    model_id: str = Form("default"),  # 用户所选图片模型（默认主模型）
     refs: list[UploadFile] = File(default=[]),
     ref: UploadFile | None = File(default=None),  # 兼容旧单图字段
 ) -> dict[str, Any]:
@@ -101,10 +107,11 @@ async def api_generate(
     size = _validate_size(size)
     if quality not in ALLOWED_QUALITY:
         raise HTTPException(400, f"quality 必须是 {sorted(ALLOWED_QUALITY)} 之一")
-    image_provider = await db.get_image_provider_settings(reveal_key=True)
-    if not image_provider["upstream_base"] or not image_provider["upstream_model"] or not image_provider["upstream_key"]:
-        raise HTTPException(503, "图片生成 AI 提供商未配置完整，请联系管理员")
-    cost_cents = image_provider["price_cents"]
+    resolved = await db.resolve_image_model(model_id)
+    if not resolved or not resolved.get("sources"):
+        raise HTTPException(503, "所选图片模型未配置或不可用，请联系管理员")
+    cost_cents = resolved["price_cents"]
+    sources = resolved["sources"]
 
     # 收集参考图：新字段 refs(多图) + 兼容旧字段 ref(单图)
     incoming = [f for f in (refs or []) if f is not None and f.filename]
@@ -148,7 +155,7 @@ async def api_generate(
     # 异步化：复杂/大图上游可能 100-200s，超过 Cloudflare 100s 会 524。改为后台任务 +
     # 前端轮询 /api/generation/{id}。参考图已在上面同步处理完，这里只把慢的上游调用放后台。
     task = asyncio.create_task(
-        _run_image_job(gen_id, user["id"], cost_cents, prompt, size, quality, ref_pngs)
+        _run_image_job(gen_id, user["id"], cost_cents, prompt, size, quality, ref_pngs, sources)
     )
     _image_jobs.add(task)
     task.add_done_callback(_image_jobs.discard)
@@ -167,13 +174,14 @@ _image_jobs: set[asyncio.Task] = set()
 async def _run_image_job(
     gen_id: int, user_id: int, cost_cents: int,
     prompt: str, size: str, quality: str, ref_pngs: list[bytes],
+    sources: list[dict[str, str]],
 ) -> None:
-    """后台执行生图。成功写 result_key，失败退款。绝不向外抛异常。"""
+    """后台执行生图（用所选模型的来源）。成功写 result_key，失败退款。绝不向外抛异常。"""
     try:
         if ref_pngs:
-            png = await upstream.edit_image(prompt, size, ref_pngs, quality=quality)
+            png = await upstream.edit_image(prompt, size, ref_pngs, quality=quality, sources=sources)
         else:
-            png = await upstream.generate_image(prompt, size, quality=quality)
+            png = await upstream.generate_image(prompt, size, quality=quality, sources=sources)
         result_key = storage.make_key("results")
         await storage.upload_bytes(result_key, png)
         await db.mark_success(gen_id, result_key)
