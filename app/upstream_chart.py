@@ -42,19 +42,25 @@ _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，
   <div class="metrics">[{"label":"营收","value":"¥1.28M","delta":"+12.4%","trend":"up"}, ...]</div>，
   div 文本是 JSON 数组，每项 {label, value, delta?, trend?}（trend 取 up/down/flat）。
 - 数学公式：用 MathJax。行内 \\( ... \\) 或 $...$，独立成行 $$ ... $$ 或 \\[ ... \\]。
-- 流程图 / 时序图 / 状态图 / 类图 / 甘特图 / ER 图等**关系类图**：用 Mermaid，写成
-  <pre class="mermaid"> ... </pre>，例如
-  <pre class="mermaid">graph TD; A[开始] --> B{判断}; B -->|是| C[执行]; B -->|否| D[结束];</pre>
+- 架构图 / 框图 / 管线 / 流程 / 时序 / 状态 / 类图 / ER 图等**关系类图：一律优先 Mermaid**
+  （自动排版、稳定好看；要宽图就用 graph LR 横向）。写成 <pre class="mermaid"> ... </pre>，例如
+  <pre class="mermaid">graph LR; A[力历史 20 步] --> B[接触 token]; B --> C[几何时序 token]; C --> D[VLA 动作专家];</pre>
+  **不要手画 SVG 框图**——手画极易翻车（形状默认黑色填充、黑底黑字）。
+- 仅当确实需要“定制插画/示意图”（如球面受力、几何图）才用内联 <svg>，且**每个形状必须显式
+  写 fill 和 stroke**（千万别留默认——默认 fill 是黑色！）；文字用深色配浅底，确保可读。
+  需要复杂着色可配一个 <style> 块（只给你自己的 class 作用域，别改 body/h1/p 等全局）。
 - 文字排版：用语义化标签 h1/h2/h3/p/ul/ol/table/figure/figcaption/blockquote/code 等。
 - 用一个 <h1> 作为整篇标题；需要时给表格加 <caption>。可配合小标题、要点列表、数据表把内容讲清楚。
 
-# 选型建议
-- 有数值 / 趋势 / 占比 / 分布 → ECharts（最好看）。关系 / 流程 / 步骤 → Mermaid。公式 → MathJax。
+# 选型建议（强约束）
+- 数值/趋势/占比/分布 → ECharts。**架构/框图/流程/管线 → Mermaid（不要手画 SVG！）**。公式 → MathJax。
 
 # 硬性约定
-- 只输出 <body> 内部的 HTML 片段；**不要**写 <html>/<head>/<body>/<script>/<style>/<link>。
-  CSS、ECharts、MathJax、Mermaid 都由外层模板统一提供，你只负责内容与结构。
+- 只输出 <body> 内部的 HTML 片段；不要写 <html>/<head>/<body>/<script>/<link>。
+  （<style> 可以用，但仅用于给你自己的图/SVG 着色，作用域到自定义 class，别覆盖全局标签。）
+  ECharts / MathJax / Mermaid 都由外层模板统一提供，你只负责内容与结构。
 - ECharts 的 option 必须是能被 JSON.parse 的纯 JSON（不能写 JS 表达式 / 函数 / 变量）。
+- 内联 SVG 的每个 rect/circle/path/text 都要显式 fill 与 stroke，绝不依赖默认值。
 - 不要引用任何外部图片/字体/JS；不要写 onclick 等事件属性。
 - 正文用中文；公式、变量、代码保持原样。
 
@@ -66,12 +72,19 @@ _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，
 def _repair_prompt() -> str:
     return ('请只输出 <body> 内的 HTML 正文片段：数据图表用 '
             '<div class="echarts" data-h="360">{合法的 ECharts option JSON}</div>，'
-            '公式用 MathJax，流程图用 <pre class="mermaid">。'
-            '不要 <html>/<head>/<script>/<style>，不要解释。')
+            '架构/流程图用 <pre class="mermaid">（别手画 SVG），公式用 MathJax。'
+            '若用内联 SVG，每个形状必须显式写 fill/stroke（默认是黑色）。'
+            '不要 <html>/<head>/<script>，不要解释。')
 
 
 def extract_html(text: str) -> str:
-    """从模型回复里取出 HTML 正文片段，并剔除模型违规塞进来的 script/style/外链。"""
+    """从模型回复里取出 HTML 正文片段。
+
+    保留 <style> 与内联样式——模型常用自定义 SVG/HTML 画图并用 <style>/class 着色，
+    一旦剥掉，SVG 形状会回退成默认黑色填充、文字黑底黑字（就是那种“一堆黑方块”）。
+    只移除真正危险的东西：<script>、<link>、on* 事件属性，以及 CSS 里的 @import /
+    expression() / javascript:（沙箱 iframe 内本就隔离，风险极小）。
+    """
     if not text:
         raise ChartError("返回内容为空")
     m = re.search(r"```(?:html?)?\s*\n(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
@@ -81,9 +94,11 @@ def extract_html(text: str) -> str:
         frag = bm.group(1).strip()
     frag = re.sub(r"</?(?:html|head|body)[^>]*>", "", frag, flags=re.IGNORECASE)
     frag = re.sub(r"<script\b.*?</script>", "", frag, flags=re.DOTALL | re.IGNORECASE)
-    frag = re.sub(r"<style\b.*?</style>", "", frag, flags=re.DOTALL | re.IGNORECASE)
     frag = re.sub(r"<link\b[^>]*>", "", frag, flags=re.IGNORECASE)
     frag = re.sub(r"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*')", "", frag, flags=re.IGNORECASE)  # 去事件属性
+    frag = re.sub(r"@import\b[^;]*;", "", frag, flags=re.IGNORECASE)
+    frag = re.sub(r"expression\s*\(", "_off_(", frag, flags=re.IGNORECASE)
+    frag = re.sub(r"javascript\s*:", "", frag, flags=re.IGNORECASE)
     if "<" not in frag or len(frag) < 10:
         raise ChartError(f"未获得有效 HTML 内容。返回片段：{text[:300]}")
     return frag
