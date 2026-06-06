@@ -23,9 +23,9 @@ ALLOWED_QUALITY = {"auto", "low", "medium", "high"}
 MAX_REF_BYTES = 10 * 1024 * 1024  # 10MB
 MAX_REFS = 6  # 单次最多参考图张数
 
-# gpt-image 系列只支持这几种尺寸（外加 auto）。实际产出尺寸严格等于这里的请求值，
-# 所以服务端只允许白名单内的值；提示词里写的比例不影响输出。
-ALLOWED_ASPECT = {"1:1", "3:2", "2:3"}
+# 支持的比例取自 gemini-3-pro-image-preview 文档常用值（见 db.IMAGE_ASPECTS）。
+# OpenAI images 路径按像素 size 出图；Gemini 对话式路径靠提示词指令控制比例/分辨率。
+ALLOWED_ASPECT = set(db.IMAGE_ASPECTS)
 
 
 class KeyBody(BaseModel):
@@ -97,9 +97,8 @@ async def api_generate(
     if not prompt:
         raise HTTPException(400, "prompt 不能为空")
     tier = db.normalize_tier(tier)
-    if aspect not in ALLOWED_ASPECT:
-        aspect = "1:1"
-    size = db.tier_size(tier, aspect)  # 档位+比例 → 上游尺寸（如 2048x2048）
+    aspect = db.normalize_aspect(aspect)
+    size = db.tier_size(tier, aspect)  # 档位+比例 → 上游像素尺寸（如 2048x1152）
     if quality not in ALLOWED_QUALITY:
         raise HTTPException(400, f"quality 必须是 {sorted(ALLOWED_QUALITY)} 之一")
     resolved = await db.resolve_image_model(model_id, tier)
@@ -150,7 +149,8 @@ async def api_generate(
     # 异步化：复杂/大图上游可能 100-200s，超过 Cloudflare 100s 会 524。改为后台任务 +
     # 前端轮询 /api/generation/{id}。参考图已在上面同步处理完，这里只把慢的上游调用放后台。
     task = asyncio.create_task(
-        _run_image_job(gen_id, user["id"], cost_cents, prompt, size, quality, ref_pngs, sources)
+        _run_image_job(gen_id, user["id"], cost_cents, prompt, size, quality, ref_pngs, sources,
+                       aspect=aspect, image_size=db.tier_imagesize(tier))
     )
     _image_jobs.add(task)
     task.add_done_callback(_image_jobs.discard)
@@ -170,13 +170,16 @@ async def _run_image_job(
     gen_id: int, user_id: int, cost_cents: int,
     prompt: str, size: str, quality: str, ref_pngs: list[bytes],
     sources: list[dict[str, str]],
+    *, aspect: str = "1:1", image_size: str = "1K",
 ) -> None:
     """后台执行生图（用所选模型的来源）。成功写 result_key，失败退款。绝不向外抛异常。"""
     try:
         if ref_pngs:
-            png = await upstream.edit_image(prompt, size, ref_pngs, quality=quality, sources=sources)
+            png = await upstream.edit_image(prompt, size, ref_pngs, quality=quality, sources=sources,
+                                            aspect=aspect, image_size=image_size)
         else:
-            png = await upstream.generate_image(prompt, size, quality=quality, sources=sources)
+            png = await upstream.generate_image(prompt, size, quality=quality, sources=sources,
+                                                aspect=aspect, image_size=image_size)
         result_key = storage.make_key("results")
         await storage.upload_bytes(result_key, png)
         await db.mark_success(gen_id, result_key)

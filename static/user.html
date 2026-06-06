@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605h" />
+<link rel="stylesheet" href="/static/app.css?v=20260605j" />
 <!-- 文字转 CAD：浏览器端 3D 预览。自托管 three.js + STLLoader + OrbitControls（拖拽旋转/滚轮缩放/右键平移），
      渲染 STL（纯三角面，无 glTF 外链/压缩解码器之类的坑），国内必达、最稳。 -->
 <script type="importmap">
@@ -220,33 +220,30 @@
         <div class="panel-section">
           <div class="panel-title">输出参数</div>
           <div class="panel-grid-2">
-          <div class="panel-row">
-            <label>分辨率</label>
-            <select id="tier">
-              <option value="1k" selected>1K · 标准</option>
-              <option value="2k">2K · 高清</option>
-              <option value="4k">4K · 超清</option>
-            </select>
+            <div class="panel-row">
+              <label>分辨率</label>
+              <select id="tier">
+                <option value="1k" selected>1K · 标准</option>
+                <option value="2k">2K · 高清</option>
+                <option value="4k">4K · 超清</option>
+              </select>
+            </div>
+            <div class="panel-row">
+              <label>质量</label>
+              <select id="quality">
+                <option value="high" selected>High · 高质量</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="auto">Auto</option>
+              </select>
+            </div>
           </div>
-          <div class="panel-row">
-            <label>比例</label>
-            <select id="aspect">
-              <option value="1:1" selected>正方 1:1</option>
-              <option value="3:2">横向 3:2</option>
-              <option value="2:3">竖向 2:3</option>
-            </select>
+          <div class="aspect-block">
+            <label class="aspect-label">比例</label>
+            <div class="aspect-grid" id="aspect-grid" role="radiogroup" aria-label="图片比例"></div>
+            <input type="hidden" id="aspect" value="1:1" />
           </div>
-          </div>
-          <div class="panel-row" style="margin-top:10px;">
-            <label>质量</label>
-            <select id="quality">
-              <option value="high" selected>High · 高质量</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-              <option value="auto">Auto</option>
-            </select>
-          </div>
-          <div class="hint">分辨率越高越清晰，单价按所选模型分档计价（1K/2K/4K）；以此处比例为准。</div>
+          <div class="hint">所选比例 / 分辨率会实时反映在右侧预览；单价按所选模型分档计价（1K/2K/4K）。</div>
         </div>
 
         <div class="sidebar-foot">
@@ -713,10 +710,23 @@ function selectImageModel(id) {
   document.querySelectorAll("#img-model-seg .model-seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
   updateImgPrice();
 }
+const TIER_LABELS = { "1k": "1K · 标准", "2k": "2K · 高清", "4k": "4K · 超清" };
+// 把三档价格写进分辨率下拉的各选项，让用户一眼看到 1K/2K/4K 各自单价（随所选模型刷新）
+function updateTierPrices() {
+  const sel = $("tier");
+  const m = imageModels.find((x) => x.id === selectedImageModelId) || imageModels[0];
+  if (!sel || !m) return;
+  Array.from(sel.options).forEach((opt) => {
+    const t = opt.value;
+    const p = (m.prices && m.prices[t] != null) ? m.prices[t] : m.price_cents;
+    opt.textContent = `${TIER_LABELS[t] || t} · ¥${((p || 0) / 100).toFixed(2)}`;
+  });
+}
 function updateImgPrice() {
   const m = imageModels.find((x) => x.id === selectedImageModelId) || imageModels[0];
   const pill = $("price-img-pill");
   if (m && pill) pill.textContent = (priceForModel(m) / 100).toFixed(2);
+  updateTierPrices();
 }
 async function refreshMe() {
   try {
@@ -1005,17 +1015,90 @@ function addRefFiles(fileList) {
   renderRefThumbs();
 }
 
+/* ===================== 比例选择器 ===================== */
+// 与后端 db.IMAGE_ASPECTS 对齐（gemini-3-pro-image-preview 文档常用值）
+const ASPECTS = [
+  { v: "1:1", w: 1, h: 1 }, { v: "2:3", w: 2, h: 3 }, { v: "3:4", w: 3, h: 4 }, { v: "9:16", w: 9, h: 16 },
+  { v: "3:2", w: 3, h: 2 }, { v: "4:3", w: 4, h: 3 }, { v: "16:9", w: 16, h: 9 }, { v: "21:9", w: 21, h: 9 },
+];
+function renderAspectGrid() {
+  const grid = $("aspect-grid");
+  if (!grid) return;
+  const cur = ($("aspect") && $("aspect").value) || "1:1";
+  grid.innerHTML = "";
+  ASPECTS.forEach((a) => {
+    const BW = 28, BH = 20, s = Math.min(BW / a.w, BH / a.h);
+    const w = Math.max(4, Math.round(a.w * s)), h = Math.max(4, Math.round(a.h * s));
+    const on = a.v === cur;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ar-chip" + (on ? " active" : "");
+    btn.dataset.v = a.v;
+    btn.setAttribute("role", "radio");
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+    btn.title = a.v;
+    btn.innerHTML = `<span class="ar-box"><i style="width:${w}px;height:${h}px"></i></span><span class="ar-label">${a.v}</span>`;
+    btn.onclick = () => selectAspect(a.v);
+    grid.appendChild(btn);
+  });
+}
+function selectAspect(v) {
+  const inp = $("aspect");
+  if (inp) inp.value = v;
+  document.querySelectorAll("#aspect-grid .ar-chip").forEach((b) => {
+    const on = b.dataset.v === v;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-checked", on ? "true" : "false");
+  });
+}
+
+/* ===================== 预览框比例适配 ===================== */
+// 把结果框按 w:h 比例缩放到「恰好放进画布」的最大矩形（可选限制长边像素）。
+function arParts(aspect) {
+  const m = String(aspect || "1:1").split(":");
+  return [parseFloat(m[0]) || 1, parseFloat(m[1]) || 1];
+}
+function stageAvail() {
+  const stage = $("canvas-stage");
+  if (!stage) return [600, 600];
+  const cs = getComputedStyle(stage);
+  const px = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const py = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  return [Math.max(80, stage.clientWidth - px), Math.max(80, stage.clientHeight - py)];
+}
+let frameFit = null; // { w, h, maxLong } 当前按比例适配的结果框；null = 不参与适配
+function applyFrameFit() {
+  if (!frameFit) return;
+  const card = $("result-card");
+  if (!card) return;
+  const [aw, ah] = stageAvail();
+  let s = Math.min(aw / frameFit.w, ah / frameFit.h);
+  if (frameFit.maxLong) s = Math.min(s, frameFit.maxLong / Math.max(frameFit.w, frameFit.h));
+  card.style.width = Math.max(1, Math.round(frameFit.w * s)) + "px";
+  card.style.height = Math.max(1, Math.round(frameFit.h * s)) + "px";
+}
+function ratioLabel(w, h) {
+  if (!w || !h) return "";
+  const r = w / h;
+  let best = null, bestErr = 0.04;
+  ASPECTS.forEach((a) => { const e = Math.abs(a.w / a.h - r) / r; if (e < bestErr) { bestErr = e; best = a.v; } });
+  if (best) return best;
+  return r >= 1 ? r.toFixed(2) + ":1" : "1:" + (1 / r).toFixed(2);
+}
+
 /* ===================== 画布状态 ===================== */
 function showEmpty() {
+  frameFit = null;
   $("empty-state").classList.remove("hidden");
   $("result-card").classList.add("hidden");
   $("result-card").style.cssText = "";
   $("canvas-foot").classList.add("hidden");
 }
-function showLoading(text, hint) {
+function showLoading(text, hint, aspect) {
+  frameFit = null;
   $("empty-state").classList.add("hidden");
   $("result-card").classList.remove("hidden");
-  $("result-card").className = "result-frame loading-mode";
+  $("result-card").className = "result-frame loading-mode" + (aspect ? " ratio-frame" : "");
   $("result-card").style.cssText = "";
   $("result-wrap").innerHTML = `
     <div class="cv-loading" role="status" aria-live="polite">
@@ -1023,9 +1106,16 @@ function showLoading(text, hint) {
       <div class="ltext">${escapeHtml(text)}</div>
       <div class="lhint">${escapeHtml(hint || "")}</div>
     </div>`;
+  // 生成中即按所选比例显示占位框，避免出图后画面尺寸跳变
+  if (aspect) {
+    const [aw, ah] = arParts(aspect);
+    frameFit = { w: aw, h: ah, maxLong: 560 };
+    applyFrameFit();
+  }
   $("canvas-foot").classList.add("hidden");
 }
 function showErrorState(message) {
+  frameFit = null;
   $("empty-state").classList.add("hidden");
   $("result-card").classList.remove("hidden");
   $("result-card").className = "result-frame error-mode";
@@ -1049,17 +1139,25 @@ function showErrorState(message) {
 }
 function showImageResult(url) {
   $("empty-state").classList.add("hidden");
-  $("result-card").className = "result-frame";
+  $("result-card").className = "result-frame image-mode ratio-frame";
   $("result-card").classList.remove("hidden");
   $("result-card").style.cssText = "";
   const wrap = $("result-wrap");
   wrap.className = "";
-  // 让图片 onload 后拿到真实尺寸写到信息栏
   wrap.innerHTML = `<img src="${url}" alt="generated" />`;
+  // 先按所选比例给出占位框，图片 onload 后再用真实像素精确贴合（绝不放大超过原图）
+  const [aw, ah] = arParts(($("aspect") && $("aspect").value) || "1:1");
+  frameFit = { w: aw, h: ah, maxLong: 560 };
+  applyFrameFit();
   const img = wrap.querySelector("img");
   img.addEventListener("load", () => {
     const w = img.naturalWidth, h = img.naturalHeight;
-    $("result-info").textContent = `${w} × ${h} px`;
+    if (w && h) {
+      // 贴合画布，但最多放大 1.6×，避免 1K 图在大屏上过度拉伸发虚
+      frameFit = { w, h, maxLong: Math.round(Math.max(w, h) * 1.6) };
+      applyFrameFit();
+      $("result-info").textContent = `${w} × ${h} px · ${ratioLabel(w, h)}`;
+    }
   });
   $("download-link").href = url;
   $("download-link").download = "image.png";
@@ -1073,6 +1171,7 @@ function showImageResult(url) {
   applyResultBg();
 }
 function showSvgResult(svgText, downloadName) {
+  frameFit = null;
   const safeSvg = sanitizeSvg(svgText);
   lastSvgText = safeSvg;
   const blob = new Blob([safeSvg], { type: "image/svg+xml" });
@@ -1113,6 +1212,7 @@ function showSvgResult(svgText, downloadName) {
 let cadViewer = null;
 function killCadViewer() { if (cadViewer) { try { cadViewer.dispose(); } catch (e) {} cadViewer = null; } }
 function showCadResult(files, meta) {
+  frameFit = null;
   killCadViewer();
   lastCadFiles = files;
   const ak = encodeURIComponent(accessKey);
@@ -1170,6 +1270,7 @@ function showCadResult(files, meta) {
   }
 }
 function showHtmlResult(url, id) {
+  frameFit = null;
   // 公式/图表：结果是自包含 HTML，沙箱 iframe 里由浏览器渲染（MathJax 公式 + Mermaid 流程图）
   const full = url + (url.includes("?") ? "&" : "?") + "access_key=" + encodeURIComponent(accessKey);
   $("empty-state").classList.add("hidden");
@@ -1259,7 +1360,7 @@ async function generate() {
 
   const btn = $("generate-btn");
   btn.disabled = true;
-  showLoading("生成中", "复杂图片可能需要 1-3 分钟，请耐心等待");
+  showLoading("生成中", "复杂图片可能需要 1-3 分钟，请耐心等待", ($("aspect") && $("aspect").value) || "1:1");
   $("status").textContent = "提交中...";
   try {
     // 提交后立即返回 pending（绕开 Cloudflare 100s 524），随后轮询结果
@@ -1607,6 +1708,9 @@ $("logout").onclick = (e) => { e.preventDefault(); logout(); };
 
 // 生成
 $("generate-btn").onclick = generate;
+// 比例选择器（替代下拉），并让按比例适配的预览框随窗口缩放重新贴合
+renderAspectGrid();
+window.addEventListener("resize", applyFrameFit);
 // 改变分辨率档位 → 价签 + 各模型按钮价格随档位刷新
 if ($("tier")) $("tier").addEventListener("change", renderImageModels);
 $("icon-generate-btn").onclick = generateIcon;

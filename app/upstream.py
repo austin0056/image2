@@ -73,6 +73,23 @@ async def _decode_response(client: httpx.AsyncClient, payload: dict[str, Any], e
     raise UpstreamError(f"上游响应缺少图片字段: {str(item)[:200]}")
 
 
+def images_api_size(size: str) -> str:
+    """OpenAI Images 接口（gpt-image / dall-e）只认每档固定的几种尺寸：方形 / 3:2 横 / 2:3 竖。
+    这类模型不支持任意比例，所以把所选比例按「朝向」归并到该档受支持的尺寸（长边保持不变），
+    避免上游对 16:9 / 9:16 / 21:9 等尺寸直接 400。Gemini 等对话式模型不走这里——比例由提示词指令控制。
+    """
+    try:
+        w, h = (int(x) for x in str(size).lower().split("x"))
+    except (ValueError, AttributeError):
+        return size
+    base = max(w, h)
+    if w == h:
+        return f"{base}x{base}"
+    if w > h:  # 横 → 3:2
+        return f"{base + base // 2}x{base}"
+    return f"{base}x{base + base // 2}"  # 竖 → 2:3
+
+
 def _err_text(resp: httpx.Response) -> str:
     try:
         j = resp.json()
@@ -91,6 +108,24 @@ def _is_chat_image(model: str) -> bool:
         return False  # OpenAI 原生 images API
     return ("gemini" in m and "image" in m) or "flash-image" in m \
         or "nano-banana" in m or "nano_banana" in m
+
+
+def _shape_directive(aspect: str, image_size: str) -> str:
+    """把比例/分辨率拼成一句自然指令。对话式出图（Gemini）不吃 size 参数，
+    用提示词指令是跨网关最稳的控制方式（参考 gemini-3-pro-image-preview 文档的 imageConfig 语义）。"""
+    bits = []
+    if aspect:
+        bits.append(f"a {aspect} aspect ratio")
+    if image_size:
+        bits.append(f"{image_size} resolution")
+    if not bits:
+        return ""
+    return "Render the image in " + " at ".join(bits) + "."
+
+
+def _gemini_prompt(prompt: str, aspect: str, image_size: str) -> str:
+    d = _shape_directive(aspect, image_size)
+    return f"{prompt}\n\n{d}" if d else prompt
 
 
 def _img_part(png: bytes) -> dict[str, Any]:
@@ -286,17 +321,20 @@ async def _post_image(make_request, decode, *, label: str, sources: list[dict[st
 
 
 async def generate_image(prompt: str, size: str, quality: str = "auto",
-                         *, sources: list[dict[str, str]] | None = None) -> bytes:
+                         *, sources: list[dict[str, str]] | None = None,
+                         aspect: str = "1:1", image_size: str = "1K") -> bytes:
     if sources is None:
         sources = await db.get_image_pool()
     if not sources:
         raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
+    api_size = images_api_size(size)  # gpt-image 等只认固定尺寸；按朝向归并（对话式路径不用它）
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         async def make_request(src: dict[str, str], with_rf: bool):
-            if _is_chat_image(src["model"]):  # Gemini 等对话式出图：/chat/completions
-                body = {"model": src["model"], "messages": [{"role": "user", "content": prompt}]}
+            if _is_chat_image(src["model"]):  # Gemini 等对话式出图：/chat/completions，比例/分辨率写进提示词
+                chat_prompt = _gemini_prompt(prompt, aspect, image_size)
+                body = {"model": src["model"], "messages": [{"role": "user", "content": chat_prompt}]}
                 return await client.post(f"{src['base']}/chat/completions", json=body, headers=_auth_headers(src["key"]))
-            body = {"model": src["model"], "prompt": prompt, "size": size, "quality": quality, "n": 1}
+            body = {"model": src["model"], "prompt": prompt, "size": api_size, "quality": quality, "n": 1}
             if with_rf:
                 body["response_format"] = "b64_json"
             return await client.post(f"{src['base']}/images/generations", json=body, headers=_auth_headers(src["key"]))
@@ -304,7 +342,7 @@ async def generate_image(prompt: str, size: str, quality: str = "auto",
         async def decode(src: dict[str, str], resp: httpx.Response):
             if _is_chat_image(src["model"]):
                 return await _decode_chat_image(client, resp.json())
-            return await _decode_response(client, resp.json(), size)
+            return await _decode_response(client, resp.json(), api_size)
 
         return await _post_image(make_request, decode, label="generations", sources=sources)
 
@@ -319,20 +357,22 @@ def _build_edit_files(ref_pngs: list[bytes]) -> list[tuple[str, tuple[str, bytes
 
 
 async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str = "auto",
-                     *, sources: list[dict[str, str]] | None = None) -> bytes:
+                     *, sources: list[dict[str, str]] | None = None,
+                     aspect: str = "1:1", image_size: str = "1K") -> bytes:
     if not ref_pngs:
         raise UpstreamError("缺少参考图")
     if sources is None:
         sources = await db.get_image_pool()
     if not sources:
         raise UpstreamError("图片生成未配置任何可用来源，请在管理后台设置")
+    api_size = images_api_size(size)  # gpt-image 等只认固定尺寸；按朝向归并（对话式路径不用它）
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         async def make_request(src: dict[str, str], with_rf: bool):
-            if _is_chat_image(src["model"]):  # Gemini 等：参考图作为多模态消息传入
-                content = [{"type": "text", "text": prompt}] + [_img_part(p) for p in ref_pngs]
+            if _is_chat_image(src["model"]):  # Gemini 等：参考图作为多模态消息传入，比例/分辨率写进提示词
+                content = [{"type": "text", "text": _gemini_prompt(prompt, aspect, image_size)}] + [_img_part(p) for p in ref_pngs]
                 body = {"model": src["model"], "messages": [{"role": "user", "content": content}]}
                 return await client.post(f"{src['base']}/chat/completions", json=body, headers=_auth_headers(src["key"]))
-            data = {"model": src["model"], "prompt": prompt, "size": size, "quality": quality, "n": "1"}
+            data = {"model": src["model"], "prompt": prompt, "size": api_size, "quality": quality, "n": "1"}
             if with_rf:
                 data["response_format"] = "b64_json"
             return await client.post(f"{src['base']}/images/edits", data=data,
@@ -341,6 +381,6 @@ async def edit_image(prompt: str, size: str, ref_pngs: list[bytes], quality: str
         async def decode(src: dict[str, str], resp: httpx.Response):
             if _is_chat_image(src["model"]):
                 return await _decode_chat_image(client, resp.json())
-            return await _decode_response(client, resp.json(), size)
+            return await _decode_response(client, resp.json(), api_size)
 
         return await _post_image(make_request, decode, label="edits", sources=sources)

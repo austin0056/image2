@@ -153,9 +153,21 @@ _IMAGE_PROVIDER_KEYS = {
 }
 
 # 分辨率档位（1K/2K/4K）：用户可选，按档分开计价；上游原生出对应尺寸。
+# 档位基准 = 长边像素；Gemini imageConfig.imageSize 用大写 1K/2K/4K（见 gemini-3-pro-image-preview 文档）。
 IMAGE_TIERS = ("1k", "2k", "4k")
 _TIER_BASE = {"1k": 1024, "2k": 2048, "4k": 4096}
-_TIER_ASPECT = {"1:1": (1, 1), "3:2": (3, 2), "2:3": (2, 3)}
+_TIER_IMAGESIZE = {"1k": "1K", "2k": "2K", "4k": "4K"}
+
+# 支持的比例：取 gemini-3-pro-image-preview 文档「常用值」一档。
+# 顺序 = 前端展示顺序（方形 → 竖 → 横）。
+IMAGE_ASPECTS = ("1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9")
+_TIER_ASPECT = {
+    "1:1": (1, 1),
+    "2:3": (2, 3), "3:2": (3, 2),
+    "3:4": (3, 4), "4:3": (4, 3),
+    "9:16": (9, 16), "16:9": (16, 9),
+    "21:9": (21, 9),
+}
 
 
 def normalize_tier(tier: str | None) -> str:
@@ -163,15 +175,32 @@ def normalize_tier(tier: str | None) -> str:
     return t if t in IMAGE_TIERS else "1k"
 
 
+def normalize_aspect(aspect: str | None) -> str:
+    a = (aspect or "1:1").strip()
+    return a if a in _TIER_ASPECT else "1:1"
+
+
+def tier_imagesize(tier: str | None) -> str:
+    """档位 → Gemini imageConfig.imageSize（大写 K）。"""
+    return _TIER_IMAGESIZE.get(normalize_tier(tier), "1K")
+
+
+def _round16(n: float) -> int:
+    """取整到 16 的倍数（>=16），保证短边为偶数且对上游友好。"""
+    return max(16, int(round(n / 16.0)) * 16)
+
+
 def tier_size(tier: str | None, aspect: str | None = "1:1") -> str:
-    """档位 + 比例 → 上游尺寸字符串（如 2048x2048 / 3072x2048 / 2048x3072）。"""
+    """档位 + 比例 → 上游像素尺寸字符串。长边 = 档位基准，短边按比例缩放并取整到 16 的倍数。
+    例：2K + 16:9 → 2048x1152；2K + 9:16 → 1152x2048；2K + 1:1 → 2048x2048。
+    """
     base = _TIER_BASE.get(normalize_tier(tier), 1024)
-    aw, ah = _TIER_ASPECT.get(aspect or "1:1", (1, 1))
+    aw, ah = _TIER_ASPECT.get(normalize_aspect(aspect), (1, 1))
     if aw == ah:
         return f"{base}x{base}"
-    if aw > ah:  # 3:2 横
-        return f"{base + base // 2}x{base}"
-    return f"{base}x{base + base // 2}"  # 2:3 竖
+    if aw > ah:  # 横向：宽为长边
+        return f"{base}x{_round16(base * ah / aw)}"
+    return f"{_round16(base * aw / ah)}x{base}"  # 竖向：高为长边
 
 
 def _coerce_cents(v: Any, fallback: int = 0) -> int:
