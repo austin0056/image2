@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from . import db, storage
 from .config import settings
 from .routes_admin import router as admin_router
+from .routes_drawio import router as drawio_router
 from .routes_user import router as user_router
 from .routes_payment import router as payment_router
 from .tasks import reaper_loop
@@ -69,6 +70,7 @@ app = FastAPI(title="image2", lifespan=lifespan)
 app.include_router(user_router)
 app.include_router(admin_router)
 app.include_router(payment_router)
+app.include_router(drawio_router)
 
 
 @app.get("/healthz")
