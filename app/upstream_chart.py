@@ -447,19 +447,31 @@ async def _post_json(url: str, body: dict, headers: dict, *, label: str) -> dict
 
 
 def _empty_reason(data: dict) -> str:
-    """空正文时给出可读原因（截断 / 状态 / finish_reason），便于定位是预算不够还是拒答。"""
+    """空正文时给出可读原因（截断 / 拒答 / finish_reason / 响应形状），便于精确定位。"""
     inc = (data.get("incomplete_details") or {}).get("reason")
     if inc:
-        return f"输出被截断: {inc}"
-    st = data.get("status")
-    if st and st != "completed":
-        return f"status={st}"
+        return f"截断:{inc}"
+    out = data.get("output")
+    if isinstance(out, list):
+        types = []
+        for it in out:
+            if not isinstance(it, dict):
+                continue
+            types.append(it.get("type"))
+            if it.get("type") == "message":
+                for blk in (it.get("content") or []):
+                    if isinstance(blk, dict) and blk.get("type") == "refusal":
+                        return f"模型拒答:{str(blk.get('refusal'))[:80]}"
+        return f"status={data.get('status')} output类型={types}"
     choices = data.get("choices") or []
     if choices:
-        fr = choices[0].get("finish_reason")
-        if fr and fr != "stop":
-            return f"finish_reason={fr}"
-    return ""
+        ch0 = choices[0] or {}
+        fr = ch0.get("finish_reason")
+        msg = ch0.get("message") or {}
+        if msg.get("reasoning_content") and not msg.get("content"):
+            return f"仅 reasoning_content、content 空, finish_reason={fr}"
+        return f"finish_reason={fr}, content类型={type(msg.get('content')).__name__}"
+    return f"响应顶层keys={list(data.keys())[:10]}"
 
 
 async def _call_llm(messages: list[dict]) -> str:
