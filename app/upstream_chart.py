@@ -482,30 +482,37 @@ async def _call_llm(messages: list[dict]) -> str:
     headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/json"}
     style = _resolve_style(cfg)
 
-    if style == "responses":
+    async def _call_responses() -> tuple[str, dict]:
         # OpenAI Responses API：system 用 instructions，对话用 input；输出在 output[].content[].text
-        url = f"{cfg['base']}/responses"
         body = {
             "model": cfg["model"],
             "instructions": _SYSTEM_PROMPT,
             "input": [{"role": m["role"], "content": m["content"]} for m in messages],
-            # 推理模型先耗 reasoning token，预算给足；同时把 reasoning effort 压到 low，
-            # 否则复杂/长提示会把整个输出预算耗在思考上，返回空正文 → “不含文本内容”。
+            # 推理模型先耗 reasoning token，预算给足；effort 压 low，把预算留给 HTML 输出。
             "max_output_tokens": 16384,
         }
         if _is_responses_model(cfg["model"]):
             body["reasoning"] = {"effort": "low"}
-        data = await _post_json(url, body, headers, label="responses")
-        content = _extract_responses_text(data)
-    else:
-        url = f"{cfg['base']}/chat/completions"
+        data = await _post_json(f"{cfg['base']}/responses", body, headers, label="responses")
+        return _extract_responses_text(data), data
+
+    async def _call_chat() -> tuple[str, dict]:
         body = {
             "model": cfg["model"],
             "messages": [{"role": "system", "content": _SYSTEM_PROMPT}] + messages,
             "max_tokens": 8192,
         }
-        data = await _post_json(url, body, headers, label="chat")
-        content = _extract_chat_text(data)
+        data = await _post_json(f"{cfg['base']}/chat/completions", body, headers, label="chat")
+        return _extract_chat_text(data, _strict=False), data
+
+    if style == "responses":
+        content, data = await _call_responses()
+        if not content:
+            # 有的中转 /responses 返回空壳（status=completed, output=[]）——回退 /chat/completions（兼容性更好）。
+            log.warning("chart /responses 空（%s），回退 /chat/completions", _empty_reason(data))
+            content, data = await _call_chat()
+    else:
+        content, data = await _call_chat()
 
     if not content:
         reason = _empty_reason(data)
