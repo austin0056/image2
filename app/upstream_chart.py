@@ -442,7 +442,7 @@ async def _post_json(url: str, body: dict, headers: dict, *, label: str) -> dict
             try:
                 return resp.json()
             except Exception:
-                raise ChartError("上游返回非 JSON")
+                raise ChartError(f"上游返回非 JSON（{label} HTTP {resp.status_code}）：{resp.text[:200]}")
     raise ChartError(last_err)
 
 
