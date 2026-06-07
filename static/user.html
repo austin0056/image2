@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605n" />
+<link rel="stylesheet" href="/static/app.css?v=20260605o" />
 <!-- 文字转 CAD：浏览器端 3D 预览。自托管 three.js + STLLoader + OrbitControls（拖拽旋转/滚轮缩放/右键平移），
      渲染 STL（纯三角面，无 glTF 外链/压缩解码器之类的坑），国内必达、最稳。 -->
 <script type="importmap">
@@ -1393,11 +1393,16 @@ function openDrawioEditor(xml){
     + '<iframe class="drawio-frame" src="/drawio/?embed=1&proto=json&spin=1&libraries=1&ui=min"></iframe>';
   document.body.appendChild(overlay);
   const frame = overlay.querySelector("iframe");
+  // 载入后自适应缩放：否则图落在视口外，用户打开看着像空白。同源直接点 draw.io 的「Fit」按钮最稳。
+  const fit = () => { try { const d = frame.contentDocument; const b = d && d.querySelector('a[title^="Fit"], div[title^="Fit"]'); if (b) b.click(); } catch (_) {} };
   const onMsg = (e) => {
     if (e.source !== frame.contentWindow) return;
     let msg; try { msg = JSON.parse(e.data); } catch(_) { return; }
     if (msg.event === "init") {
       frame.contentWindow.postMessage(JSON.stringify({ action:"load", autosave:1, xml }), "*");
+      [500, 1000, 1700].forEach((ms) => setTimeout(fit, ms)); // 兜底：个别情况不发 load 事件
+    } else if (msg.event === "load") {
+      setTimeout(fit, 150);
     } else if (msg.event === "exit") {
       cleanup();
     }

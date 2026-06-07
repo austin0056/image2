@@ -765,7 +765,7 @@ input[type="range"] {
    卡片高度由文档真实高度决定（iframe 内 postMessage('doc-height') 上报 → JS 写 iframe 高度），
    超出画布时由画布纵向滚动，绝不在卡内裁切图表；短内容卡片自然收紧，不再撑出大片空白。 */
 .result-frame.html-mode {
-  width: min(1040px, 100%); height: auto;
+  width: min(1280px, 100%); height: auto;
   min-height: 220px; max-width: 100%; max-height: none;
   padding: 0; background: #fff; overflow: hidden;
   border: 1px solid var(--c-line); border-radius: var(--r-xl);
@@ -778,8 +778,8 @@ input[type="range"] {
   width: 100%; height: 600px; /* 初始占位；收到 doc-height 后由 JS 改写为文档真实高度 */
   border: 0; display: block; background: #fff;
 }
-/* 文档型预览：画布顶对齐 + 纵向滚动，长报告完整可读（不再卡内裁切） */
-.canvas-stage:has(.result-frame.html-mode) { align-items: flex-start; }
+/* 文档型预览：画布顶对齐 + 纵向滚动，长报告完整可读（不再卡内裁切）；收紧内边距让报告卡占更多画布。 */
+.canvas-stage:has(.result-frame.html-mode) { align-items: flex-start; padding: var(--s-4) var(--s-5); }
 
 /* ===== draw.io 全屏在线编辑层 ===== */
 .drawio-overlay {

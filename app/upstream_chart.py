@@ -147,7 +147,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   *{box-sizing:border-box}
   body{margin:0;background:#fff;color:#1A1A17;
     font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
-    line-height:1.7;font-size:15px;padding:32px 44px;max-width:940px;margin:0 auto;
+    line-height:1.7;font-size:15px;padding:30px 48px;max-width:1180px;margin:0 auto;
     -webkit-font-smoothing:antialiased;}
   h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:0 0 16px}
   h2{font-size:19px;font-weight:650;margin:28px 0 10px}
