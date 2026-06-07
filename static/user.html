@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605m" />
+<link rel="stylesheet" href="/static/app.css?v=20260605n" />
 <!-- 文字转 CAD：浏览器端 3D 预览。自托管 three.js + STLLoader + OrbitControls（拖拽旋转/滚轮缩放/右键平移），
      渲染 STL（纯三角面，无 glTF 外链/压缩解码器之类的坑），国内必达、最稳。 -->
 <script type="importmap">
@@ -1305,7 +1305,8 @@ function showHtmlResult(url, id) {
   dl.textContent = "↓ HTML";
   dl.classList.remove("hidden");
   $("result-info").textContent = "HTML · 公式 / 流程图";
-  $("result-actions").innerHTML = `<button class="btn ghost small" id="export-chart-png" type="button">↓ PNG</button>`;
+  $("result-actions").innerHTML = `<button class="btn ghost small" id="edit-chart-dz" type="button">✎ 编辑</button><button class="btn ghost small" id="export-chart-png" type="button">↓ PNG</button>`;
+  $("edit-chart-dz").onclick = () => editChartDiagram(id);
   $("export-chart-png").onclick = () => exportChartPng(id);
   $("canvas-foot").classList.remove("hidden");
   applyResultBg();
@@ -1330,6 +1331,90 @@ function exportChartPng(id) {
   iframe.contentWindow.postMessage({ type: "snapshot" }, "*");
   setTimeout(() => window.removeEventListener("message", onMsg), 30000);
 }
+/* ===================== draw.io 在线编辑（diagram JSON → mxGraph） ===================== */
+// 按 kind 上色，沿用全站配色（蓝=输入/策略，橙=力/流程，紫=时序/模型，绿=几何/数据）
+const _DZ_KIND = {
+  input:    "fillColor=#E9F1FE;strokeColor=#5B8DEF;fontColor=#1F3A6E",
+  process:  "fillColor=#FFF4E6;strokeColor=#E89A45;fontColor=#8A4B12",
+  model:    "fillColor=#F1EBFB;strokeColor=#8A5CD6;fontColor=#4A2D8A",
+  data:     "fillColor=#E6F6EE;strokeColor=#33A96C;fontColor=#1C6B45",
+  output:   "fillColor=#D7E6FD;strokeColor=#3F6FC2;fontColor=#16315C",
+  external: "fillColor=#F4F4F1;strokeColor=#C9C8C1;fontColor=#57564E",
+  decision: "fillColor=#FFF4E6;strokeColor=#E89A45;fontColor=#8A4B12",
+};
+function _xmlEsc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+// 最长路径分层（左到右）：rank 决定列，列内顺序决定行；带迭代上限防环。
+function _dzRanks(nodes, edges){
+  const ids = new Set(nodes.map(n=>n.id));
+  const inc = {}; nodes.forEach(n=>{ inc[n.id]=0; });
+  edges.forEach(e=>{ if(ids.has(e.from)&&ids.has(e.to)) inc[e.to]=(inc[e.to]||0)+1; });
+  const rank = {}; nodes.forEach(n=>{ rank[n.id] = inc[n.id]===0 ? 0 : -1; });
+  for(let it=0; it<nodes.length+2; it++){
+    let changed=false;
+    edges.forEach(e=>{
+      if(!ids.has(e.from)||!ids.has(e.to)) return;
+      const ru = rank[e.from]<0?0:rank[e.from];
+      if(rank[e.to] < ru+1){ rank[e.to]=ru+1; changed=true; }
+    });
+    if(!changed) break;
+  }
+  nodes.forEach(n=>{ if(rank[n.id]<0) rank[n.id]=0; });
+  return rank;
+}
+function diagramToMxGraph(spec){
+  const nodes = spec.nodes||[], edges = spec.edges||[];
+  const rank = _dzRanks(nodes, edges);
+  const W=170, H=54, GX=90, GY=26, perCol={}, cells=[];
+  nodes.forEach(n=>{
+    const r = rank[n.id]||0, row = perCol[r]||0; perCol[r]=row+1;
+    const x = 40 + r*(W+GX), y = 40 + row*(H+GY);
+    let shape = "rounded=1;arcSize=12";
+    if(n.shape==="stadium") shape = "rounded=1;arcSize=50";
+    else if(n.shape==="diamond"||n.kind==="decision") shape = "rhombus";
+    else if(n.shape==="cylinder") shape = "shape=cylinder3";
+    const color = _DZ_KIND[n.kind] || "fillColor=#F7F7F4;strokeColor=#B0B0A8;fontColor=#333333";
+    const style = `${shape};whiteSpace=wrap;html=1;${color};fontSize=12;`;
+    cells.push(`<mxCell id="v_${_xmlEsc(n.id)}" value="${_xmlEsc(n.label)}" style="${style}" vertex="1" parent="1"><mxGeometry x="${x}" y="${y}" width="${W}" height="${H}" as="geometry"/></mxCell>`);
+  });
+  const ids = new Set(nodes.map(n=>n.id));
+  edges.forEach((e,i)=>{
+    if(!ids.has(e.from)||!ids.has(e.to)) return;
+    cells.push(`<mxCell id="e_${i}" value="${_xmlEsc(e.label||"")}" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#8A8F98;fontSize=10;fontColor=#57564E;" edge="1" parent="1" source="v_${_xmlEsc(e.from)}" target="v_${_xmlEsc(e.to)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+  });
+  return `<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/>${cells.join("")}</root></mxGraphModel>`;
+}
+// 打开 draw.io 全屏编辑层，用 embed JSON 协议把图载入为草稿（导出在 Step 3 接）。
+function openDrawioEditor(xml){
+  const overlay = document.createElement("div");
+  overlay.className = "drawio-overlay";
+  overlay.innerHTML =
+    '<div class="drawio-bar"><span>✎ 编辑框架图 · draw.io（拖拽改框 / 连线 / 配色）</span>'
+    + '<div class="dz-actions"><button class="btn ghost small" id="dz-close" type="button">关闭</button></div></div>'
+    + '<iframe class="drawio-frame" src="/drawio/?embed=1&proto=json&spin=1&libraries=1&ui=min"></iframe>';
+  document.body.appendChild(overlay);
+  const frame = overlay.querySelector("iframe");
+  const onMsg = (e) => {
+    if (e.source !== frame.contentWindow) return;
+    let msg; try { msg = JSON.parse(e.data); } catch(_) { return; }
+    if (msg.event === "init") {
+      frame.contentWindow.postMessage(JSON.stringify({ action:"load", autosave:1, xml }), "*");
+    } else if (msg.event === "exit") {
+      cleanup();
+    }
+  };
+  function cleanup(){ window.removeEventListener("message", onMsg); overlay.remove(); }
+  overlay.querySelector("#dz-close").onclick = cleanup;
+  window.addEventListener("message", onMsg);
+}
+async function editChartDiagram(id){
+  try {
+    toast("正在载入可编辑结构…");
+    const j = await api(`/api/generations/${id}/diagram`);
+    if (!j.diagram || !(j.diagram.nodes||[]).length){ toast("此图没有可编辑的结构图", "error"); return; }
+    openDrawioEditor(diagramToMxGraph(j.diagram));
+  } catch(e){ console.warn(e); toast("载入编辑器失败：" + (e.message||""), "error"); }
+}
+
 function getActiveSize() {
   const b = document.querySelector(".preview-size.active");
   return b ? parseInt(b.dataset.size, 10) : 420;

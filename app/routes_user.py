@@ -5,6 +5,7 @@ import asyncio
 import io
 import json
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -241,6 +242,40 @@ async def get_file(
         raise HTTPException(404)
     body, ctype = await storage.fetch_object(key)
     return StreamingResponse(io.BytesIO(body), media_type=ctype)
+
+
+# 从图表 HTML 里抽 diagram 结构块：<div class="diagram" data-dir="LR">{...JSON...}</div>
+_DIAGRAM_RE = re.compile(r'<div[^>]*class="diagram"[^>]*>(.*?)</div>', re.DOTALL | re.IGNORECASE)
+_DIR_RE = re.compile(r'data-dir="([^"]*)"', re.IGNORECASE)
+
+
+@router.get("/api/generations/{generation_id}/diagram")
+async def api_generation_diagram(
+    generation_id: int,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """抽出该次图表生成里的 diagram 结构(nodes/edges)，供 web 内 draw.io 编辑器载入为可编辑草稿。
+    只有 kind=chart 且 HTML 内含结构化 diagram 块时才有；否则返回 {diagram: null}。"""
+    gen = await db.get_generation(generation_id)
+    if not gen or gen["user_id"] != user["id"]:
+        raise HTTPException(404)
+    if gen.get("kind") != "chart" or not gen.get("result_key"):
+        return {"diagram": None}
+    body, _ = await storage.fetch_object(gen["result_key"])
+    html = body.decode("utf-8", "ignore")
+    m = _DIAGRAM_RE.search(html)
+    if not m:
+        return {"diagram": None}
+    d = _DIR_RE.search(m.group(0))
+    try:
+        spec = json.loads(m.group(1).strip())
+    except (ValueError, TypeError):
+        return {"diagram": None}
+    return {"diagram": {
+        "dir": d.group(1) if d else "LR",
+        "nodes": spec.get("nodes", []),
+        "edges": spec.get("edges", []),
+    }}
 
 
 @router.delete("/api/generations/{generation_id}")
