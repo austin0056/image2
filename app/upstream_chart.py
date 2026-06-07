@@ -446,6 +446,22 @@ async def _post_json(url: str, body: dict, headers: dict, *, label: str) -> dict
     raise ChartError(last_err)
 
 
+def _empty_reason(data: dict) -> str:
+    """空正文时给出可读原因（截断 / 状态 / finish_reason），便于定位是预算不够还是拒答。"""
+    inc = (data.get("incomplete_details") or {}).get("reason")
+    if inc:
+        return f"输出被截断: {inc}"
+    st = data.get("status")
+    if st and st != "completed":
+        return f"status={st}"
+    choices = data.get("choices") or []
+    if choices:
+        fr = choices[0].get("finish_reason")
+        if fr and fr != "stop":
+            return f"finish_reason={fr}"
+    return ""
+
+
 async def _call_llm(messages: list[dict]) -> str:
     """调一次公式/图表模型，返回文本。按 api_style 选择 Chat Completions 或 Responses API。"""
     cfg = await db.get_provider("chart")
@@ -461,8 +477,12 @@ async def _call_llm(messages: list[dict]) -> str:
             "model": cfg["model"],
             "instructions": _SYSTEM_PROMPT,
             "input": [{"role": m["role"], "content": m["content"]} for m in messages],
-            "max_output_tokens": 8192,  # 推理模型会先耗 reasoning token，给足避免截断
+            # 推理模型先耗 reasoning token，预算给足；同时把 reasoning effort 压到 low，
+            # 否则复杂/长提示会把整个输出预算耗在思考上，返回空正文 → “不含文本内容”。
+            "max_output_tokens": 16384,
         }
+        if _is_responses_model(cfg["model"]):
+            body["reasoning"] = {"effort": "low"}
         data = await _post_json(url, body, headers, label="responses")
         content = _extract_responses_text(data)
     else:
@@ -470,14 +490,15 @@ async def _call_llm(messages: list[dict]) -> str:
         body = {
             "model": cfg["model"],
             "messages": [{"role": "system", "content": _SYSTEM_PROMPT}] + messages,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
         }
         data = await _post_json(url, body, headers, label="chat")
         content = _extract_chat_text(data)
 
     if not content:
-        log.error("chart 上游返回不含文本 style=%s data=%s", style, str(data)[:500])
-        raise ChartError("上游返回不含文本内容")
+        reason = _empty_reason(data)
+        log.error("chart 上游返回不含文本 style=%s reason=%s data=%s", style, reason, str(data)[:800])
+        raise ChartError("上游返回不含文本内容" + (f"（{reason}）" if reason else ""))
     return content
 
 
