@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/app.css?v=20260605k" />
+<link rel="stylesheet" href="/static/app.css?v=20260605m" />
 <!-- 文字转 CAD：浏览器端 3D 预览。自托管 three.js + STLLoader + OrbitControls（拖拽旋转/滚轮缩放/右键平移），
      渲染 STL（纯三角面，无 glTF 外链/压缩解码器之类的坑），国内必达、最稳。 -->
 <script type="importmap">
@@ -1269,6 +1269,20 @@ function showCadResult(files, meta) {
     console.warn(e); showFallback("3D 预览初始化失败");
   }
 }
+// 报告卡按文档真实高度自适应：iframe 沙箱无 same-origin，父窗口读不到内部高度，
+// 由文档内 postMessage({type:'doc-height'}) 上报，这里据此写 iframe 高度，卡片(height:auto)随之收紧/撑开。
+let _docHeightHandler = null;
+function setupDocAutoHeight() {
+  if (_docHeightHandler) window.removeEventListener("message", _docHeightHandler);
+  _docHeightHandler = (e) => {
+    if (!e.data || e.data.type !== "doc-height") return;
+    const ifr = document.querySelector("#result-wrap iframe.html-frame");
+    if (!ifr) return;
+    const h = Math.max(160, Math.min(20000, Math.round((e.data.height || 0) + 4)));
+    if (h) ifr.style.height = h + "px";
+  };
+  window.addEventListener("message", _docHeightHandler);
+}
 function showHtmlResult(url, id) {
   frameFit = null;
   // 公式/图表：结果是自包含 HTML，沙箱 iframe 里由浏览器渲染（MathJax 公式 + Mermaid 流程图）
@@ -1280,6 +1294,7 @@ function showHtmlResult(url, id) {
   const wrap = $("result-wrap");
   wrap.className = "";
   wrap.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" src="${full}" title="生成结果"></iframe>`;
+  setupDocAutoHeight();
   ["download-png-from-svg","download-png-2048","copy-svg","view-svg"].forEach((idd) => $(idd).classList.add("hidden"));
   $("size-toolbar").style.display = "none";
   $("svg-source").classList.add("hidden");

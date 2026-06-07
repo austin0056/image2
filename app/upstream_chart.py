@@ -316,6 +316,21 @@ __BODY__
     try{await MathJax.startup.promise;}catch(e){}
     try{if(window.MathJax&&MathJax.typesetPromise)await MathJax.typesetPromise();}catch(e){}
   })();
+  // 把文档真实高度上报给父窗口：iframe 是无 same-origin 的沙箱，父窗口读不到内部高度，
+  // 只能由文档自己量好 scrollHeight 回传，父窗口据此让「报告卡」按内容高度自适应——
+  // 不再卡在固定高度里内部滚动 / 裁切图表，短内容也不撑出大片空白。
+  function _docHeight(){
+    var b=document.body,d=document.documentElement;
+    return Math.max(b.scrollHeight,b.offsetHeight,d.scrollHeight,d.offsetHeight);
+  }
+  function _reportHeight(){try{parent.postMessage({type:'doc-height',height:_docHeight()},'*');}catch(e){}}
+  window.__renderReady.then(function(){
+    _reportHeight();
+    // 渲染完布局可能还在回流（字体/公式/Mermaid 异步撑开），多打几拍兜底
+    [120,400,900,1800].forEach(function(ms){setTimeout(_reportHeight,ms);});
+  });
+  window.addEventListener('resize',_reportHeight);
+  if(window.ResizeObserver){try{new ResizeObserver(_reportHeight).observe(document.body);}catch(e){}}
   window.addEventListener('message',async function(e){
     if(!e.data||e.data.type!=='snapshot')return;
     try{
