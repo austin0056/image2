@@ -319,17 +319,24 @@ __BODY__
   // 把文档真实高度上报给父窗口：iframe 是无 same-origin 的沙箱，父窗口读不到内部高度，
   // 只能由文档自己量好 scrollHeight 回传，父窗口据此让「报告卡」按内容高度自适应——
   // 不再卡在固定高度里内部滚动 / 裁切图表，短内容也不撑出大片空白。
-  function _docHeight(){
-    var b=document.body,d=document.documentElement;
-    return Math.max(b.scrollHeight,b.offsetHeight,d.scrollHeight,d.offsetHeight);
+  // 只量 body 的「内容高度」：body 高度由内容决定（auto），不含视口。
+  // 切忌用 documentElement.scrollHeight——它至少等于视口（=父窗口刚设的 iframe 高度），
+  // 会和「按上报值设 iframe 高度」形成正反馈，高度无界增长。
+  function _docHeight(){var b=document.body;return Math.max(b.scrollHeight,b.offsetHeight);}
+  var _lastH=0;
+  function _reportHeight(){
+    var h=_docHeight();
+    if(Math.abs(h-_lastH)<2)return;   // 没有实质变化就不上报，避免抖动
+    _lastH=h;
+    try{parent.postMessage({type:'doc-height',height:h},'*');}catch(e){}
   }
-  function _reportHeight(){try{parent.postMessage({type:'doc-height',height:_docHeight()},'*');}catch(e){}}
   window.__renderReady.then(function(){
     _reportHeight();
     // 渲染完布局可能还在回流（字体/公式/Mermaid 异步撑开），多打几拍兜底
     [120,400,900,1800].forEach(function(ms){setTimeout(_reportHeight,ms);});
   });
-  window.addEventListener('resize',_reportHeight);
+  // 只观察 body 内容尺寸变化（合法回流）；不监听 window resize——
+  // 父窗口改 iframe 高度会触发 iframe 内的 resize，那正是反馈环的源头。
   if(window.ResizeObserver){try{new ResizeObserver(_reportHeight).observe(document.body);}catch(e){}}
   window.addEventListener('message',async function(e){
     if(!e.data||e.data.type!=='snapshot')return;
