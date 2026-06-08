@@ -10,12 +10,36 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
+from pathlib import Path
 
 import httpx
 
 from . import db
+
+# 流程图节点图标：复用矢量图标库（lucide 线性风格，适合学术图）的一批 body，
+# 注入模板供 diagram→Mermaid 时按节点 icon/kind 渲染。
+_DIAGRAM_ICON_NAMES = (
+    "camera", "eye", "message-square", "messages-square", "bot", "cpu", "activity",
+    "audio-waveform", "waves", "sliders-horizontal", "settings-2", "layers", "square-stack",
+    "boxes", "box", "shapes", "network", "git-branch", "workflow", "brain", "zap", "sparkles",
+    "list", "play", "target", "gauge", "spray-can", "move", "hand", "circle-dot", "sigma", "grip",
+    "database", "table", "bar-chart-3", "file-text", "send", "filter", "git-merge", "git-commit-horizontal",
+)
+
+
+def _load_diagram_icons() -> dict[str, str]:
+    try:
+        data = json.loads((Path(__file__).parent / "icon_data" / "lucide.json").read_text(encoding="utf-8"))
+        icons = data.get("icons", {})
+        return {n: icons[n]["body"] for n in _DIAGRAM_ICON_NAMES if n in icons}
+    except Exception:  # noqa: BLE001 —— 图标缺失不应影响出图
+        return {}
+
+
+_DIAGRAM_ICONS = _load_diagram_icons()
 
 log = logging.getLogger("image2.chart")
 
@@ -51,7 +75,13 @@ _SYSTEM_PROMPT = """你是科学排版与信息图专家。根据用户需求，
     kind?（决定品牌配色：input 输入 / process 处理 / model 模型 / output 输出 / data 数据 /
     store 存储 / decision 判断 / external 外部）、
     shape?（rect 方框默认 / round 圆角 / stadium 胶囊 / cylinder 圆柱 / diamond 菱形判断 / hexagon 六边）、
-    group?（同名的若干节点会被框进一个带标题的子框 subgraph，用来表达“某模块内含几步”）。
+    group?（同名的若干节点会被框进一个带标题的子框 subgraph，用来表达“某模块内含几步”）、
+    icon?（节点图标，用 lucide 图标名让框图更专业，按语义从下表挑一个；省略则按 kind 自动配默认图标）。
+  · 可用 icon：camera/eye(视觉) message-square/messages-square(语言/指令) bot(机器人) cpu/brain(模型/策略/VLA)
+    activity/waves/audio-waveform(力/信号/序列) sliders-horizontal/settings-2(归一化/处理) filter(筛选)
+    layers/square-stack/box/boxes/shapes(token/特征/几何) network/git-branch/workflow/git-merge/git-commit-horizontal(时序/编码/融合)
+    zap/sparkles(动作专家/关键步) list/play/send(输出/动作) target/gauge/sigma/bar-chart-3/database/table/file-text(指标/统计/数据)
+    spray-can/move/hand(执行/操作) circle-dot/grip(通用)。**只能用这些名字**，写别的会回退到默认。
   · edge：from / to（写对应 node 的 id）、label?（连线上的文字）。
   · 你**绝不要**写任何坐标、宽高、颜色、SVG、classDef——只描述节点与连线，其余全交给模板。
   · 颜色靠 kind 自动上品牌色，不用画图例(legend)；要分组就用 group。
@@ -131,8 +161,9 @@ def extract_html(text: str) -> str:
 
 
 def wrap_html(body_fragment: str) -> str:
-    """把 LLM 的正文片段套进自包含模板（含 MathJax/Mermaid/html2canvas 与快照监听）。"""
-    return _HTML_TEMPLATE.replace("__BODY__", body_fragment)
+    """把 LLM 的正文片段套进自包含模板（含 MathJax/Mermaid/html2canvas 与快照监听 + 流程图节点图标）。"""
+    icons_js = json.dumps(_DIAGRAM_ICONS, ensure_ascii=False, separators=(",", ":"))
+    return _HTML_TEMPLATE.replace("__ICONS__", icons_js).replace("__BODY__", body_fragment)
 
 
 # 自包含 HTML 模板：浏览器端渲染。__BODY__ 处填入 LLM 的正文片段。
@@ -172,6 +203,10 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .echarts{width:100%;margin:16px auto;}
   .diagram{display:none;}
   .mermaid{width:100%;margin:16px 0;text-align:center;}
+  /* 流程图节点：图标在上、标签居中换行（htmlLabels），盒子贴合内容不裁切。 */
+  .mermaid .nlabel{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;line-height:1.2;width:max-content;max-width:150px;}
+  .mermaid .nlabel svg{display:block;flex:0 0 auto;}
+  .mermaid .nlabel .nl-t{white-space:normal;overflow-wrap:break-word;}
   .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;}
   .metric-card{border:1px solid #E7E6E0;border-radius:12px;padding:14px 16px;background:#fff;}
   .metric-card .ml{font-size:12px;color:#8C8B81;}
@@ -246,6 +281,17 @@ __BODY__
     hexagon:['{{','}}'],parallelogram:['[/','/]']};
   function _diagId(s){return String(s==null?'':s).replace(/[^A-Za-z0-9_]/g,'_').slice(0,40)||'n';}
   function _diagLabel(s){return '"'+String(s==null?'':s).replace(/"/g,'&quot;').replace(/[\r\n]+/g,' ').replace(/ /g,' ').trim()+'"';}
+  // 节点图标：优先用节点自带 icon，缺失则按 kind 取默认；SVG 属性用单引号避免破坏 Mermaid 标签字符串。
+  var _ICONS=__ICONS__;
+  var _KIND_ICON={input:'box',process:'sliders-horizontal',model:'cpu',data:'layers',
+    output:'play',external:'grip',decision:'git-branch',store:'database',accent:'circle-dot'};
+  function _ico(name){var b=_ICONS[name];if(!b)return '';
+    return "<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"+String(b).replace(/"/g,"'")+"</svg>";}
+  function _diagNodeLabel(n){
+    var icon=_ico(n.icon||'')||_ico(_KIND_ICON[n.kind]||'');
+    var t=String(n.label==null?'':n.label).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/[\r\n]+/g,' ').trim();
+    return '"'+"<span class='nlabel'>"+icon+"<span class='nl-t'>"+t+"</span></span>"+'"';
+  }
   function _diagramToMermaid(spec,dir){
     var nodes=(spec&&spec.nodes)||[], edges=(spec&&spec.edges)||[];
     var d=/^(LR|RL|TB|BT)$/.test(dir||'')?dir:'LR';
@@ -257,7 +303,7 @@ __BODY__
       var id=_diagId(n.id); if(seen[id])return; seen[id]=1;
       var shape=n.shape||(n.kind==='decision'?'diamond':'rect');
       var w=DIAG_SHAPE[shape]||DIAG_SHAPE.rect;
-      var line='  '+id+w[0]+_diagLabel(n.label)+w[1];
+      var line='  '+id+w[0]+_diagNodeLabel(n)+w[1];
       if(n.group){(groups[n.group]=groups[n.group]||[]).push(line);}else{out.push(line);}
       var cls=DIAG_KIND2CLASS[n.kind]; if(cls)classLines.push('  class '+id+' '+cls);
     });
@@ -291,7 +337,7 @@ __BODY__
     try{_initDiagrams();}catch(e){}
     try{
       mermaid.initialize({
-        startOnLoad:false, securityLevel:'strict', htmlLabels:false, theme:'base',
+        startOnLoad:false, securityLevel:'loose', htmlLabels:true, theme:'base',
         themeVariables:{
           fontFamily:'Inter,"PingFang SC","Microsoft YaHei",sans-serif', fontSize:'14px',
           primaryColor:'#F7F5F2', primaryBorderColor:'#D8D7D0', primaryTextColor:'#1A1A17',
@@ -299,7 +345,7 @@ __BODY__
           clusterBkg:'#FBFAF8', clusterBorder:'#E7E6E0',
           secondaryColor:'#EEF3FB', tertiaryColor:'#F0FAF5', edgeLabelBackground:'#FFFFFF'
         },
-        flowchart:{htmlLabels:false, curve:'basis', nodeSpacing:46, rankSpacing:64, padding:14, useMaxWidth:true}
+        flowchart:{htmlLabels:true, curve:'basis', nodeSpacing:36, rankSpacing:54, padding:12, useMaxWidth:true}
       });
       if(!document.getElementById('brandMermaidCSS')){
         var _st=document.createElement('style'); _st.id='brandMermaidCSS';
@@ -310,7 +356,14 @@ __BODY__
           '.mermaid .node.model rect,.mermaid .node.model polygon,.mermaid .node.model path{fill:#F0EAFB !important;stroke:#7C3AED !important;stroke-width:1.2px !important}'+
           '.mermaid .node.data rect,.mermaid .node.data polygon,.mermaid .node.data path{fill:#FBF1DA !important;stroke:#B7791F !important;stroke-width:1.2px !important}'+
           '.mermaid .node.muted rect,.mermaid .node.muted polygon,.mermaid .node.muted path{fill:#F4F4F1 !important;stroke:#C9C8C1 !important;stroke-width:1px !important}'+
-          '.mermaid .node .label,.mermaid .node text,.mermaid .node tspan{fill:#1A1A17 !important;color:#1A1A17 !important}';
+          '.mermaid .node .label,.mermaid .node text,.mermaid .node tspan{fill:#1A1A17 !important;color:#1A1A17 !important}'+
+          '.mermaid .node .nl-t{color:#1A1A17 !important;font-weight:500}'+
+          '.mermaid .node.accent .nlabel svg{color:#D9531E}'+
+          '.mermaid .node.info .nlabel svg{color:#2F6BD6}'+
+          '.mermaid .node.ok .nlabel svg{color:#0E9F6E}'+
+          '.mermaid .node.model .nlabel svg{color:#7C3AED}'+
+          '.mermaid .node.data .nlabel svg{color:#B7791F}'+
+          '.mermaid .node.muted .nlabel svg{color:#9A9A90}';
         document.head.appendChild(_st);
       }
       await mermaid.run();
