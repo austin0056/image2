@@ -173,8 +173,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .diagram{display:none;}
   /* 不强制铺满宽度：宽流程图(几十节点)按自然尺寸渲染保持可读，超出则本块内横向滚动，
      绝不缩成一条看不清的细带。窄图自然居中。 */
-  .mermaid{margin:16px 0;text-align:center;overflow-x:auto;overflow-y:hidden;}
-  .mermaid>svg{max-width:none;height:auto;}
+  .mermaid{margin:16px 0;text-align:left;overflow:auto;}
+  .mermaid>svg{max-width:none !important;}
   .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;}
   .metric-card{border:1px solid #E7E6E0;border-radius:12px;padding:14px 16px;background:#fff;}
   .metric-card .ml{font-size:12px;color:#8C8B81;}
