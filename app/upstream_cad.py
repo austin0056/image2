@@ -52,7 +52,14 @@ _SYSTEM_PROMPT = """你是一名精通 build123d 的参数化 CAD 工程师。�
   确需判断时用比较：`e.geom_type == GeomType.CIRCLE`（同理 LINE/ELLIPSE/BSPLINE 等）。
 - 选面：按方向用 `obj.faces().filter_by(Plane.XY)`，或取顶面/底面 `obj.faces().sort_by(Axis.Z)[-1]` / `[0]`。
 - 选边/面还可用 `.filter_by(Axis.Z)`、`.group_by(Axis.Z)`、`.sort_by(...)`；用 `[...]` 取子集前先确认非空。
-- 圆角/倒角：`fillet(edges, radius=r)`、`chamfer(edges, length=c)`，edges 传选择集（可空判断后再用）。
+- 圆角/倒角（`fillet(edges, radius=r)`、`chamfer(edges, length=c)`）务必按这三条做，否则常报
+  `Standard_NoSuchObject / FindFromKey`（边不在当前实体上）：
+  · **放到最后**——所有布尔(+ - &)/拼接完成、得到最终实体后，再做圆角/倒角；
+  · **现选现用**——紧挨操作前才用「当前实体」`result.edges()...` 重新选边，绝不复用更早版本选出的边集
+    （实体一旦被改动，旧边引用就失效，传给 chamfer/fillet 必崩）；
+  · **尺寸要小**——length/radius 必须远小于相邻边长与面尺寸（经验：≤ 相关最短边长的 1/3），过大 OCCT 直接失败；
+  · 拿不准能否成功时，**用 try/except 包住，失败就跳过该倒角、保留原实体**——宁可不倒角也别整体失败：
+    `try:` 换行 `    result = chamfer(result.edges().filter_by(Axis.Z), length=c)` 换行 `except Exception:` 换行 `    pass`
 - 打孔优先布尔减：`result = base - Pos(x, y, z) * Cylinder(radius=r, height=h)`；
   代数建模里平移用 `Pos(x,y,z) * 形体`、旋转用 `Rot(rx,ry,rz) * 形体`，不要臆造 `.translate()/.move()` 之类方法名。
 - 这些名字已随 `from build123d import *` 导入，直接用、别重新定义：
@@ -72,7 +79,11 @@ def _build_repair_prompt(prev_code: str, error: str) -> str:
         f"# 运行报错（截断）\n{error[-1200:]}\n\n"
         "请定位根因并修正。注意 build123d 高频错误：geom_type 是属性不是方法"
         "（用 `e.geom_type == GeomType.CIRCLE` 或 `edges().filter_by(GeomType.CIRCLE)`，"
-        "不要 `e.geom_type()`，也不要对 Circle 用 isinstance）；面/边选择集取下标前先确认非空。"
+        "不要 `e.geom_type()`，也不要对 Circle 用 isinstance）；面/边选择集取下标前先确认非空。\n"
+        "★ 若报错含 `Standard_NoSuchObject` / `FindFromKey`：是 chamfer/fillet 拿到了不属于当前实体的边"
+        "（多半是先选了边、之后又改动实体导致旧边失效，或边集选错）。修法：把倒角/圆角移到所有布尔之后、"
+        "对最终 result 操作，并**紧挨操作前**用 `result.edges()...` 重新选边；同时把 length/radius 改小"
+        "（≤ 相关最短边长的 1/3）；仍不放心就用 `try: ... except Exception: pass` 包住，失败则跳过倒角保留实体。\n"
         "仍按 [PLAN] + ```python``` 代码块格式输出完整可执行代码。"
     )
 
