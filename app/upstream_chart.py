@@ -171,10 +171,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   mjx-container[display]{margin:14px 0!important}
   .echarts{width:100%;margin:16px auto;}
   .diagram{display:none;}
-  /* 不强制铺满宽度：宽流程图(几十节点)按自然尺寸渲染保持可读，超出则本块内横向滚动，
-     绝不缩成一条看不清的细带。窄图自然居中。 */
-  .mermaid{margin:16px 0;text-align:left;overflow:auto;}
-  .mermaid>svg{max-width:none !important;}
+  .mermaid{width:100%;margin:16px 0;text-align:center;}
   .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;}
   .metric-card{border:1px solid #E7E6E0;border-radius:12px;padding:14px 16px;background:#fff;}
   .metric-card .ml{font-size:12px;color:#8C8B81;}
@@ -299,7 +296,7 @@ __BODY__
           clusterBkg:'#FBFAF8', clusterBorder:'#E7E6E0',
           secondaryColor:'#EEF3FB', tertiaryColor:'#F0FAF5', edgeLabelBackground:'#FFFFFF'
         },
-        flowchart:{htmlLabels:false, curve:'basis', nodeSpacing:46, rankSpacing:64, padding:14, useMaxWidth:false}
+        flowchart:{htmlLabels:false, curve:'basis', nodeSpacing:46, rankSpacing:64, padding:14, useMaxWidth:true}
       });
       if(!document.getElementById('brandMermaidCSS')){
         var _st=document.createElement('style'); _st.id='brandMermaidCSS';
