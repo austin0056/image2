@@ -249,6 +249,9 @@ __BODY__
   function _diagramToMermaid(spec,dir){
     var nodes=(spec&&spec.nodes)||[], edges=(spec&&spec.edges)||[];
     var d=/^(LR|RL|TB|BT)$/.test(dir||'')?dir:'LR';
+    // 节点多的横向(LR)流程图缩到画布宽度会被压成看不清的细带 → 自上而下(TB)排版：
+    // 每行占满画布宽度、清晰可读，纵向加长由画布滚动。小流程图保持原方向。
+    if(nodes.length>10 && (d==='LR'||d==='RL')) d='TB';
     var out=['graph '+d], groups={}, seen={}, classLines=[];
     nodes.forEach(function(n){
       var id=_diagId(n.id); if(seen[id])return; seen[id]=1;
