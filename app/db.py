@@ -157,7 +157,11 @@ _IMAGE_PROVIDER_KEYS = {
 # 4K 取 UHD 3840 而非 4096：多数上游（含 gpt-image 中转）限制「size max side <= 3840px」，
 # 4096 会被 400 拒绝；3840×2160 正是标准 4K UHD。
 IMAGE_TIERS = ("1k", "2k", "4k")
-_MAX_SIDE = 3840  # 上游长边上限；超过会报：size max side must be <= 3840px
+# 上游尺寸约束（gpt-image 类中转）：长边 ≤ 3840；总像素 ∈ [655360, 8294400]（即 ≤ 3840×2160 的 4K 面积）。
+# 超出会被 400 拒：size max side must be <= 3840px / size total pixels must be between ...
+_MAX_SIDE = 3840
+_MIN_PIXELS = 655_360
+_MAX_PIXELS = 8_294_400  # 3840×2160（4K UHD 面积）
 _TIER_BASE = {"1k": 1024, "2k": 2048, "4k": 3840}
 _TIER_IMAGESIZE = {"1k": "1K", "2k": "2K", "4k": "4K"}
 
@@ -193,18 +197,51 @@ def _round16(n: float) -> int:
     return max(16, int(round(n / 16.0)) * 16)
 
 
+def _fit_bounds(w: float, h: float) -> tuple[float, float]:
+    """等比缩放（精确边界），使其同时满足：长边 ≤ _MAX_SIDE、总像素 ∈ [_MIN_PIXELS, _MAX_PIXELS]。
+    返回浮点，取整与边界兜底在 tier_size 里做。"""
+    m = max(w, h)
+    if m > _MAX_SIDE:  # 长边上限
+        f = _MAX_SIDE / m
+        w, h = w * f, h * f
+    p = w * h
+    if p > _MAX_PIXELS:  # 总像素上限
+        f = (_MAX_PIXELS / p) ** 0.5
+        w, h = w * f, h * f
+    p = w * h
+    if p < _MIN_PIXELS:  # 总像素下限（等比放大；下限远小于上限对应面积，不会触及长边上限）
+        f = (_MIN_PIXELS / p) ** 0.5
+        w, h = w * f, h * f
+    return w, h
+
+
 def tier_size(tier: str | None, aspect: str | None = "1:1") -> str:
-    """档位 + 比例 → 上游像素尺寸字符串。长边 = 档位基准，短边按比例缩放并取整到 16 的倍数。
-    例：2K + 16:9 → 2048x1152；2K + 9:16 → 1152x2048；2K + 1:1 → 2048x2048。
+    """档位 + 比例 → 上游像素尺寸字符串。长边 = 档位基准、短边按比例缩放，再统一夹到上游
+    的「长边 ≤ 3840 且总像素 ∈ [655360, 8294400]」区间内，最后取整到 16 的倍数。
+    例：4K+16:9 → 3840x2160（标准 UHD）；4K+1:1 → 2880x2880（面积顶 4K 上限）；2K+1:1 → 2048x2048。
     """
-    # 长边一律不超过上游上限（避免「size max side <= 3840px」被拒）
     base = min(_TIER_BASE.get(normalize_tier(tier), 1024), _MAX_SIDE)
     aw, ah = _TIER_ASPECT.get(normalize_aspect(aspect), (1, 1))
-    if aw == ah:
-        return f"{base}x{base}"
-    if aw > ah:  # 横向：宽为长边
-        return f"{base}x{_round16(base * ah / aw)}"
-    return f"{_round16(base * aw / ah)}x{base}"  # 竖向：高为长边
+    if aw >= ah:  # 横向/正方：宽为长边
+        w, h = float(base), base * ah / aw
+    else:         # 竖向：高为长边
+        w, h = base * aw / ah, float(base)
+    w, h = _fit_bounds(w, h)
+    W, H = _round16(w), _round16(h)
+    # 取整可能让面积/长边微越界——用 16px 整步兜底，保证落在真实区间（带 guard 防死循环）。
+    for _ in range(64):
+        if (W * H) <= _MAX_PIXELS and max(W, H) <= _MAX_SIDE:
+            break
+        if W >= H:
+            W -= 16
+        else:
+            H -= 16
+    for _ in range(64):
+        if (W * H) >= _MIN_PIXELS or max(W, H) >= _MAX_SIDE:
+            break
+        W += 16
+        H += 16
+    return f"{W}x{H}"
 
 
 def _coerce_cents(v: Any, fallback: int = 0) -> int:
