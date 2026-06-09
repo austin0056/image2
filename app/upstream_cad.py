@@ -62,6 +62,12 @@ _SYSTEM_PROMPT = """你是一名精通 build123d 的参数化 CAD 工程师。�
     `try:` 换行 `    result = chamfer(result.edges().filter_by(Axis.Z), length=c)` 换行 `except Exception:` 换行 `    pass`
 - 打孔优先布尔减：`result = base - Pos(x, y, z) * Cylinder(radius=r, height=h)`；
   代数建模里平移用 `Pos(x,y,z) * 形体`、旋转用 `Rot(rx,ry,rz) * 形体`，不要臆造 `.translate()/.move()` 之类方法名。
+- 合并多个部件 **优先用代数并集**：`result = parts[0]` 再 `for p in parts[1:]: result = result + p`
+  （或直接 `a + b + c`）。**不要**用 `Compound(children=parts).fuse()` 去融合一堆部件——只要其中任何一个
+  是空件 / 无实体 / None，就会报 `Null TopoDS_Shape object`。
+  · 加入合并前先确保每个部件都是**非空实体**（用布尔/挤出真正产生了 Solid，不是空 Part()/空 Compound()/空选择集）；
+  · 任何 `with BuildPart() as p: ...` 都要确有实体特征，再用 `p.part`；空的 Builder 会得到空实体。
+  · `Compound(children=[...])` 仅用于**装配体展示**（多个相互独立的实体摆在一起），需要单一融合实体时一律用 `+`。
 - 这些名字已随 `from build123d import *` 导入，直接用、别重新定义：
   GeomType、Axis、Plane、Align、Mode、Pos、Rot、Box、Cylinder、Sphere、Cone、fillet、chamfer 等。
 
@@ -84,6 +90,11 @@ def _build_repair_prompt(prev_code: str, error: str) -> str:
         "（多半是先选了边、之后又改动实体导致旧边失效，或边集选错）。修法：把倒角/圆角移到所有布尔之后、"
         "对最终 result 操作，并**紧挨操作前**用 `result.edges()...` 重新选边；同时把 length/radius 改小"
         "（≤ 相关最短边长的 1/3）；仍不放心就用 `try: ... except Exception: pass` 包住，失败则跳过倒角保留实体。\n"
+        "★ 若报错含 `Null TopoDS_Shape`：是布尔/合并里混入了空或无效实体（最常见于 "
+        "`Compound(children=parts).fuse()` 且某个 part 为空/None/无实体）。修法：**别用 "
+        "`Compound(...).fuse()` 融合部件**，改用代数并集——`result = parts[0]`，再 "
+        "`for p in parts[1:]: result = result + p`；合并前过滤掉空件（确保每个都是真正建出的 Solid，"
+        "不是空 Part()/空 Compound()/空 Builder/空选择集）。同理任何 `-`/`&` 的操作数也必须非空。\n"
         "仍按 [PLAN] + ```python``` 代码块格式输出完整可执行代码。"
     )
 

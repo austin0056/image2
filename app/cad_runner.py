@@ -66,6 +66,42 @@ import sys
 from build123d import *
 from build123d import export_step, export_stl, export_gltf
 
+# === 运行期安全网（平台注入，非用户代码）===
+# 让 Compound(children=parts).fuse() 在遇到空/无效子实体时不再整体崩溃：
+# 原始 fuse 成功则原样返回（零行为改变）；仅当它抛错（如 "Null TopoDS_Shape object"）
+# 才退化为对非空实体做代数并集，尽量仍产出可用模型，而不是让整个生成失败。
+try:
+    from build123d import Compound as _ImgCompound
+    _img_orig_fuse = _ImgCompound.fuse
+    def _img_safe_fuse(self, *args, **kwargs):
+        try:
+            return _img_orig_fuse(self, *args, **kwargs)
+        except Exception:
+            cand = list(getattr(self, "children", []) or []) + list(args)
+            good = []
+            for _o in cand:
+                if _o is None:
+                    continue
+                try:
+                    if hasattr(_o, "solids") and len(_o.solids()) == 0:
+                        continue
+                except Exception:
+                    pass
+                good.append(_o)
+            if not good:
+                raise
+            _res = good[0]
+            for _o in good[1:]:
+                try:
+                    _res = _res + _o
+                except Exception:
+                    pass
+            return _res
+    _img_safe_fuse.__name__ = "fuse"
+    _ImgCompound.fuse = _img_safe_fuse
+except Exception:
+    pass
+
 # === LLM CODE BEGIN ===
 {code}
 # === LLM CODE END ===
