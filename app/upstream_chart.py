@@ -530,8 +530,12 @@ def _empty_reason(data: dict) -> str:
     return f"响应顶层keys={list(data.keys())[:10]}"
 
 
-async def _call_llm(messages: list[dict]) -> str:
-    """调一次公式/图表模型，返回文本。按 api_style 选择 Chat Completions 或 Responses API。"""
+async def complete_text(system: str, messages: list[dict], *, max_tokens: int = 8192) -> str:
+    """用 chart(gpt-5.5) 提供商跑一次文本补全，返回纯文本。
+
+    按 provider="chart" 的 api_style 选 Responses / Chat Completions；Responses 返回空壳时
+    自动回退 Chat。供图表生成与「提示词优化」等复用同一条 gpt-5.5 通道。
+    """
     cfg = await db.get_provider("chart")
     if not cfg["base"] or not cfg["key"]:
         raise ChartError("公式/图表模型未配置（管理面板 → AI 提供商 → 公式图表）")
@@ -542,21 +546,20 @@ async def _call_llm(messages: list[dict]) -> str:
         # OpenAI Responses API：system 用 instructions，对话用 input；输出在 output[].content[].text
         body = {
             "model": cfg["model"],
-            "instructions": _SYSTEM_PROMPT,
+            "instructions": system,
             "input": [{"role": m["role"], "content": m["content"]} for m in messages],
-            # 推理模型先耗 reasoning token，预算给足；effort 压 low，把预算留给 HTML 输出。
-            "max_output_tokens": 16384,
+            "max_output_tokens": max_tokens,
         }
         if _is_responses_model(cfg["model"]):
-            body["reasoning"] = {"effort": "low"}
+            body["reasoning"] = {"effort": "low"}  # 推理模型压低 effort，把预算留给正文输出
         data = await _post_json(f"{cfg['base']}/responses", body, headers, label="responses")
         return _extract_responses_text(data), data
 
     async def _call_chat() -> tuple[str, dict]:
         body = {
             "model": cfg["model"],
-            "messages": [{"role": "system", "content": _SYSTEM_PROMPT}] + messages,
-            "max_tokens": 8192,
+            "messages": [{"role": "system", "content": system}] + messages,
+            "max_tokens": max_tokens,
         }
         data = await _post_json(f"{cfg['base']}/chat/completions", body, headers, label="chat")
         return _extract_chat_text(data, _strict=False), data
@@ -575,6 +578,11 @@ async def _call_llm(messages: list[dict]) -> str:
         log.error("chart 上游返回不含文本 style=%s reason=%s data=%s", style, reason, str(data)[:800])
         raise ChartError("上游返回不含文本内容" + (f"（{reason}）" if reason else ""))
     return content
+
+
+async def _call_llm(messages: list[dict]) -> str:
+    """调一次公式/图表模型，返回 HTML 文本。"""
+    return await complete_text(_SYSTEM_PROMPT, messages, max_tokens=16384)
 
 
 async def generate_chart(prompt: str, *, max_repairs: int = 1) -> tuple[bytes, dict]:

@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
-from . import db, storage, upstream, upstream_cad, upstream_chart, upstream_claude, upstream_recraft
+from . import db, storage, upstream, upstream_cad, upstream_chart, upstream_claude, upstream_prompt, upstream_recraft
 from .config import settings
 from .deps import current_user, require_user
 
@@ -90,6 +90,7 @@ async def api_generate(
     aspect: str = Form("1:1"),    # 比例 1:1 / 3:2 横 / 2:3 竖
     quality: str = Form("high"),
     model_id: str = Form("default"),  # 用户所选图片模型（默认主模型）
+    enhance: str = Form("1"),     # 是否先用 gpt-5.5 优化提示词（默认开）
     refs: list[UploadFile] = File(default=[]),
     ref: UploadFile | None = File(default=None),  # 兼容旧单图字段
 ) -> dict[str, Any]:
@@ -135,9 +136,17 @@ async def api_generate(
     has_ref = bool(ref_pngs)
     first_ref_key = ref_keys[0] if ref_keys else None
 
+    # 可选：先用 gpt-5.5 把提示词优化成更利于成图的版本（失败静默回退原文，不阻断生图）。
+    enhance_on = str(enhance).strip().lower() in ("1", "true", "on", "yes")
+    final_prompt, enhanced = (prompt, False)
+    if enhance_on:
+        final_prompt, enhanced = await upstream_prompt.enhance_image_prompt(
+            prompt, has_ref=has_ref, aspect=aspect, tier_label=db.tier_imagesize(tier),
+        )
+
     gen_id, balance_after = await db.try_charge_and_create(
         user_id=user["id"],
-        prompt=prompt,
+        prompt=prompt,  # 历史里保留用户原始输入；实际生图用 final_prompt
         size=size,
         has_ref=has_ref,
         ref_key=first_ref_key,
@@ -150,7 +159,7 @@ async def api_generate(
     # 异步化：复杂/大图上游可能 100-200s，超过 Cloudflare 100s 会 524。改为后台任务 +
     # 前端轮询 /api/generation/{id}。参考图已在上面同步处理完，这里只把慢的上游调用放后台。
     task = asyncio.create_task(
-        _run_image_job(gen_id, user["id"], cost_cents, prompt, size, quality, ref_pngs, sources,
+        _run_image_job(gen_id, user["id"], cost_cents, final_prompt, size, quality, ref_pngs, sources,
                        aspect=aspect, image_size=db.tier_imagesize(tier))
     )
     _image_jobs.add(task)
@@ -160,6 +169,8 @@ async def api_generate(
         "generation_id": gen_id,
         "status": "pending",
         "balance_cents": balance_after,
+        "enhanced": enhanced,
+        "enhanced_prompt": final_prompt if enhanced else "",
     }
 
 

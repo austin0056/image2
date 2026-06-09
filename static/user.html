@@ -203,6 +203,12 @@
         <div class="panel-section">
           <div class="panel-title">提示词</div>
           <textarea id="prompt" placeholder="例：A cinematic photo of a snow leopard on a mountain ridge, golden hour, 35mm lens..."></textarea>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:9px;font-size:12.5px;cursor:pointer;color:var(--c-text);">
+            <input type="checkbox" id="enhance" checked />
+            <span>✨ AI 优化提示词</span>
+            <span class="dim" style="font-size:11px;">先用 gpt-5.5 把描述补全得更利于成图（失败自动用原文）</span>
+          </label>
+          <div id="enhanced-note" class="hidden" style="margin-top:8px;font-size:11.5px;line-height:1.55;padding:8px 10px;border:1px solid var(--c-line);border-radius:8px;background:var(--c-surface);color:var(--c-text-mute);"></div>
         </div>
 
         <div class="panel-section">
@@ -1461,6 +1467,7 @@ async function generate() {
   fd.append("aspect", ($("aspect") && $("aspect").value) || "1:1");
   fd.append("quality", $("quality").value);
   fd.append("model_id", selectedImageModelId);
+  fd.append("enhance", ($("enhance") && $("enhance").checked) ? "1" : "0");
   refFiles.forEach((f) => fd.append("refs", f));
 
   const btn = $("generate-btn");
@@ -1471,6 +1478,13 @@ async function generate() {
     // 提交后立即返回 pending（绕开 Cloudflare 100s 524），随后轮询结果
     const data = await api("/api/generate", { method: "POST", body: fd });
     $("balance").textContent = fmtMoney(data.balance_cents);
+    const note = $("enhanced-note");
+    if (note) {
+      if (data.enhanced && data.enhanced_prompt) {
+        note.textContent = "✨ 已优化提示词：" + data.enhanced_prompt;
+        note.classList.remove("hidden");
+      } else { note.classList.add("hidden"); note.textContent = ""; }
+    }
     const id = data.generation_id;
     refreshHistory();
     const started = Date.now();
