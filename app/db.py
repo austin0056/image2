@@ -154,8 +154,11 @@ _IMAGE_PROVIDER_KEYS = {
 
 # 分辨率档位（1K/2K/4K）：用户可选，按档分开计价；上游原生出对应尺寸。
 # 档位基准 = 长边像素；Gemini imageConfig.imageSize 用大写 1K/2K/4K（见 gemini-3-pro-image-preview 文档）。
+# 4K 取 UHD 3840 而非 4096：多数上游（含 gpt-image 中转）限制「size max side <= 3840px」，
+# 4096 会被 400 拒绝；3840×2160 正是标准 4K UHD。
 IMAGE_TIERS = ("1k", "2k", "4k")
-_TIER_BASE = {"1k": 1024, "2k": 2048, "4k": 4096}
+_MAX_SIDE = 3840  # 上游长边上限；超过会报：size max side must be <= 3840px
+_TIER_BASE = {"1k": 1024, "2k": 2048, "4k": 3840}
 _TIER_IMAGESIZE = {"1k": "1K", "2k": "2K", "4k": "4K"}
 
 # 支持的比例：取 gemini-3-pro-image-preview 文档「常用值」一档。
@@ -194,7 +197,8 @@ def tier_size(tier: str | None, aspect: str | None = "1:1") -> str:
     """档位 + 比例 → 上游像素尺寸字符串。长边 = 档位基准，短边按比例缩放并取整到 16 的倍数。
     例：2K + 16:9 → 2048x1152；2K + 9:16 → 1152x2048；2K + 1:1 → 2048x2048。
     """
-    base = _TIER_BASE.get(normalize_tier(tier), 1024)
+    # 长边一律不超过上游上限（避免「size max side <= 3840px」被拒）
+    base = min(_TIER_BASE.get(normalize_tier(tier), 1024), _MAX_SIDE)
     aw, ah = _TIER_ASPECT.get(normalize_aspect(aspect), (1, 1))
     if aw == ah:
         return f"{base}x{base}"
