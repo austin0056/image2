@@ -14,6 +14,7 @@ for _k, _v in dict(
     os.environ.setdefault(_k, _v)
 
 from app import db  # noqa: E402
+from app import upstream  # noqa: E402
 
 MAX_SIDE = 3840
 MIN_PIXELS = 655_360
@@ -39,7 +40,17 @@ for tier in db.IMAGE_TIERS:
               and MIN_PIXELS <= area <= MAX_PIXELS
               and w % 16 == 0 and h % 16 == 0
               and drift <= 0.06)
-        check(f"{tier} {aspect:>5} -> {w}x{h} (area={area}, drift={drift*100:.1f}%)", ok)
+        check(f"tier_size {tier} {aspect:>5} -> {w}x{h} (area={area}, drift={drift*100:.1f}%)", ok)
+
+# 真正发给上游的尺寸 = images_api_size(tier_size(...))，必须同样落在区间内
+# （历史 bug：images_api_size 把长边 ×1.5，3840→5760，触发 size max side > 3840px）
+for tier in db.IMAGE_TIERS:
+    for aspect in db.IMAGE_ASPECTS:
+        api = upstream.images_api_size(db.tier_size(tier, aspect))
+        w, h = map(int, api.split("x"))
+        area = w * h
+        ok = max(w, h) <= MAX_SIDE and area <= MAX_PIXELS and w % 16 == 0 and h % 16 == 0
+        check(f"api_size  {tier} {aspect:>5} -> {api} (area={area})", ok)
 
 # 关键档位应命中标准尺寸
 check("4K 16:9 == 3840x2160 (UHD)", db.tier_size("4k", "16:9") == "3840x2160")

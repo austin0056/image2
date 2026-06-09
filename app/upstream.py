@@ -73,21 +73,38 @@ async def _decode_response(client: httpx.AsyncClient, payload: dict[str, Any], e
     raise UpstreamError(f"上游响应缺少图片字段: {str(item)[:200]}")
 
 
+# 上游（gpt-image 类中转）尺寸约束：长边 ≤ 3840；总像素 ∈ [655360, 8294400]。
+_API_MAX_SIDE = 3840
+_API_MAX_PIXELS = 8_294_400
+
+
 def images_api_size(size: str) -> str:
-    """OpenAI Images 接口（gpt-image / dall-e）只认每档固定的几种尺寸：方形 / 3:2 横 / 2:3 竖。
-    这类模型不支持任意比例，所以把所选比例按「朝向」归并到该档受支持的尺寸（长边保持不变），
-    避免上游对 16:9 / 9:16 / 21:9 等尺寸直接 400。Gemini 等对话式模型不走这里——比例由提示词指令控制。
+    """传给 OpenAI Images 接口（gpt-image / dall-e）的尺寸。
+
+    size 由 db.tier_size 按「档位 + 所选比例」算好，已满足上游约束（长边 ≤3840、
+    总像素 ∈[655360,8294400]、已含用户所选比例），这里原样透传，仅做防御性夹紧。
+
+    注意：旧实现按「朝向」把长边再 ×1.5 归并到 3:2/2:3，会把 3840 撑成 5760，直接触发
+    「size max side must be <= 3840px」，并丢弃用户的 16:9/9:16/21:9 等比例——已废弃。
     """
     try:
         w, h = (int(x) for x in str(size).lower().split("x"))
     except (ValueError, AttributeError):
         return size
-    base = max(w, h)
-    if w == h:
-        return f"{base}x{base}"
-    if w > h:  # 横 → 3:2
-        return f"{base + base // 2}x{base}"
-    return f"{base}x{base + base // 2}"  # 竖 → 2:3
+    if w <= 0 or h <= 0:
+        return size
+    wf, hf = float(w), float(h)
+    m = max(wf, hf)
+    if m > _API_MAX_SIDE:                       # 防御：长边超限 → 等比缩
+        f = _API_MAX_SIDE / m
+        wf, hf = wf * f, hf * f
+    if wf * hf > _API_MAX_PIXELS:               # 防御：总像素超限 → 等比缩
+        f = (_API_MAX_PIXELS / (wf * hf)) ** 0.5
+        wf, hf = wf * f, hf * f
+    # 向下取整到 16 的倍数，确保夹紧后绝不反超上限
+    W = max(16, int(wf) // 16 * 16)
+    H = max(16, int(hf) // 16 * 16)
+    return f"{W}x{H}"
 
 
 def _err_text(resp: httpx.Response) -> str:
